@@ -576,7 +576,10 @@ class MainActivity : Activity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun updateTemperature() {
-        if (::gauge.isInitialized) gauge.setTemperature(setTemp)
+        if (::gauge.isInitialized) {
+            gauge.setTemperature(setTemp)
+            gauge.setTargetTemperature(targetTemperature)
+        }
     }
 
     private fun updateStatus() {
@@ -954,104 +957,134 @@ class MainActivity : Activity() {
         private val onTemperatureChanged: (Int) -> Unit
     ) : View(context) {
 
-        private val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = dp(17).toFloat()
             strokeCap = Paint.Cap.ROUND
         }
-        private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = white
+        private val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val tickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(190, 200, 203)
+            style = Paint.Style.STROKE
+            strokeWidth = dp(1).toFloat()
+        }
+        private val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(235, 238, 239)
+            style = Paint.Style.FILL
+        }
+        private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(42, 45, 50)
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        private val smallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.LTGRAY
+        private val decimalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(42, 45, 50)
             textAlign = Paint.Align.CENTER
-            textSize = dp(14).toFloat()
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        }
+        private val captionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(150, 158, 161)
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        private val bubblePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        private val bubbleTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(50, 52, 57)
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         private val bounds = RectF()
-        private var temperature = initialTemperature
+        private var temperature = initialTemperature.coerceIn(0, 70)
+        private var target = targetTemperature.coerceIn(0, 70)
         private var dragging = false
 
         fun setTemperature(value: Int) {
-            temperature = value.coerceIn(10, 50)
+            temperature = value.coerceIn(0, 70)
+            invalidate()
+        }
+
+        fun setTargetTemperature(value: Int) {
+            target = value.coerceIn(0, 70)
             invalidate()
         }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            val centerX = width / 2f
-            val centerY = height / 2f + dp(12)
-            val radius = min(width, height) * 0.40f
-            bounds.set(centerX - radius, centerY - radius, centerX + radius, centerY + radius)
 
-            arcPaint.color = Color.rgb(35, 55, 75)
-            canvas.drawArc(bounds, 135f, 270f, false, arcPaint)
+            val cx = width / 2f
+            val cy = height / 2f + dp(8)
+            val radius = min(width, height) * 0.39f
+            bounds.set(cx - radius, cy - radius, cx + radius, cy + radius)
 
-            val sweep = ((temperature - 10) / 40f) * 270f
+            // Soft raised circular face and the pale outer track, inspired by the Calorex dial.
+            canvas.drawCircle(cx, cy, radius + dp(11).toFloat(), shadowPaint)
+            canvas.drawCircle(cx, cy, radius + dp(5).toFloat(), centerPaint)
+
+            trackPaint.strokeWidth = dp(15).toFloat()
+            trackPaint.color = Color.rgb(222, 230, 231)
+            canvas.drawArc(bounds, 135f, 270f, false, trackPaint)
+
+            val sweep = (temperature / 70f) * 270f
+            arcPaint.strokeWidth = dp(15).toFloat()
             arcPaint.color = when {
-                temperature >= 40 -> Color.rgb(255, 90, 60)
-                temperature >= 30 -> blue
-                else -> green
+                temperature >= 50 -> Color.rgb(190, 20, 48)
+                temperature >= 35 -> Color.rgb(133, 147, 157)
+                else -> Color.rgb(125, 178, 185)
             }
             canvas.drawArc(bounds, 135f, sweep, false, arcPaint)
 
-            textPaint.textSize = dp(60).toFloat()
-            canvas.drawText("$temperature°", centerX, centerY + dp(8), textPaint)
-            smallPaint.textSize = dp(15).toFloat()
-            canvas.drawText("°C", centerX, centerY + dp(38), smallPaint)
-
-            val markerAngle = Math.toRadians((135f + sweep).toDouble())
-            val markerX = centerX + radius * cos(markerAngle).toFloat()
-            val markerY = centerY + radius * sin(markerAngle).toFloat()
-            val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = white
-                style = Paint.Style.FILL
+            // Graduations around the dial.
+            val tickRadiusOuter = radius + dp(23)
+            val tickRadiusInner = radius + dp(17)
+            for (i in 0..70) {
+                val angle = Math.toRadians((135f + i / 70f * 270f).toDouble())
+                val major = i % 10 == 0
+                val r1 = if (major) tickRadiusInner - dp(2) else tickRadiusInner
+                val r2 = tickRadiusOuter
+                tickPaint.strokeWidth = if (major) dp(2).toFloat() else dp(1).toFloat()
+                canvas.drawLine(
+                    cx + r1 * cos(angle).toFloat(),
+                    cy + r1 * sin(angle).toFloat(),
+                    cx + r2 * cos(angle).toFloat(),
+                    cy + r2 * sin(angle).toFloat(),
+                    tickPaint
+                )
             }
-            canvas.drawCircle(markerX, markerY, dp(7).toFloat(), markerPaint)
 
-            if (temperature >= 50) {
-                // Llama visual de temperatura máxima (indicador de demostración).
-                val flameCenterX = centerX
-                val flameBottom = centerY - radius + dp(28)
-                val flameHeight = dp(43).toFloat()
-                val flameWidth = dp(31).toFloat()
-                val outerFlame = Path().apply {
-                    moveTo(flameCenterX, flameBottom)
-                    cubicTo(
-                        flameCenterX - flameWidth, flameBottom - flameHeight * 0.35f,
-                        flameCenterX - flameWidth * 0.45f, flameBottom - flameHeight * 0.82f,
-                        flameCenterX, flameBottom - flameHeight
-                    )
-                    cubicTo(
-                        flameCenterX + flameWidth * 0.05f, flameBottom - flameHeight * 0.65f,
-                        flameCenterX + flameWidth, flameBottom - flameHeight * 0.55f,
-                        flameCenterX, flameBottom
-                    )
-                    close()
-                }
-                val flamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = Color.rgb(255, 95, 25)
-                    style = Paint.Style.FILL
-                }
-                canvas.drawPath(outerFlame, flamePaint)
-                val innerFlame = Path().apply {
-                    moveTo(flameCenterX, flameBottom - dp(5))
-                    cubicTo(
-                        flameCenterX - dp(10), flameBottom - dp(14),
-                        flameCenterX - dp(5), flameBottom - dp(25),
-                        flameCenterX, flameBottom - dp(31)
-                    )
-                    cubicTo(
-                        flameCenterX + dp(3), flameBottom - dp(20),
-                        flameCenterX + dp(11), flameBottom - dp(14),
-                        flameCenterX, flameBottom - dp(5)
-                    )
-                    close()
-                }
-                flamePaint.color = Color.rgb(255, 220, 60)
-                canvas.drawPath(innerFlame, flamePaint)
-            }
+            valuePaint.textSize = dp(57).toFloat()
+            canvas.drawText(temperature.toString(), cx - dp(4), cy + dp(13), valuePaint)
+            decimalPaint.textSize = dp(24).toFloat()
+            canvas.drawText("°", cx + dp(35), cy - dp(2), decimalPaint)
+            decimalPaint.textSize = dp(17).toFloat()
+            canvas.drawText(".0", cx + dp(38), cy + dp(20), decimalPaint)
+
+            captionPaint.textSize = dp(11).toFloat()
+            canvas.drawText("WATER TEMPERATURE", cx, cy + dp(48), captionPaint)
+
+            // End labels.
+            captionPaint.textSize = dp(12).toFloat()
+            canvas.drawText("0°", cx - radius * 0.82f, cy + radius * 0.98f, captionPaint)
+            canvas.drawText("70°", cx + radius * 0.82f, cy + radius * 0.98f, captionPaint)
+
+            // White floating bubble marks the programmed target.
+            val targetSweep = (target / 70f) * 270f
+            val markerAngle = Math.toRadians((135f + targetSweep).toDouble())
+            val markerX = cx + (radius + dp(4)) * cos(markerAngle).toFloat()
+            val markerY = cy + (radius + dp(4)) * sin(markerAngle).toFloat()
+            val bubbleRadius = dp(27).toFloat()
+            canvas.drawCircle(markerX, markerY + dp(2), bubbleRadius, shadowPaint)
+            canvas.drawCircle(markerX, markerY, bubbleRadius, bubblePaint)
+            bubbleTextPaint.textSize = dp(15).toFloat()
+            canvas.drawText("${target}°", markerX, markerY + dp(5), bubbleTextPaint)
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -1076,14 +1109,13 @@ class MainActivity : Activity() {
 
         private fun updateFromTouch(x: Float, y: Float) {
             val cx = width / 2f
-            val cy = height / 2f + dp(12)
+            val cy = height / 2f + dp(8)
             var angle = Math.toDegrees(atan2((y - cy).toDouble(), (x - cx).toDouble())).toFloat()
             if (angle < 0f) angle += 360f
-            // Map the 270-degree gauge arc (135° through 405°) to 10–50°C.
             var relative = angle - 135f
             if (relative < 0f) relative += 360f
             relative = relative.coerceIn(0f, 270f)
-            val value = (10 + (relative / 270f * 40f)).toInt().coerceIn(10, 50)
+            val value = (relative / 270f * 70f).toInt().coerceIn(0, 70)
             temperature = value
             invalidate()
             onTemperatureChanged(value)
