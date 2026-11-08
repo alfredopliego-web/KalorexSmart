@@ -1,4 +1,4 @@
-package com.kalorex.demo
+         package com.kalorex.demo
 
 import android.app.Activity
 import android.app.AlertDialog
@@ -77,13 +77,15 @@ class MainActivity : Activity() {
     private val scheduleCheck = object : Runnable {
         override fun run() {
             applyScheduleForCurrentTime()
-            scheduleHandler.postDelayed(this, 30_000L)
+            scheduleHandler.postDelayed(this, 1_000L)
         }
     }
 
     override fun onResume() {
         super.onResume()
         scheduleHandler.removeCallbacks(scheduleCheck)
+        updateStatus()
+        updateTemperature()
         scheduleHandler.post(scheduleCheck)
     }
 
@@ -126,7 +128,7 @@ class MainActivity : Activity() {
         val nav = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(5), dp(3), dp(5), dp(3))
+            setPadding(dp(5), 0, dp(5), 0)
             setBackgroundColor(panel)
         }
         navHome = navItem("⌂", "Inicio") { showPage("home") }
@@ -134,7 +136,7 @@ class MainActivity : Activity() {
         navSchedule = navItem("◷", "Programación") { showPage("schedule") }
         navSettings = navItem("⚙", "Ajustes") { showSettings() }
         listOf(navHome, navCalendar, navSchedule, navSettings).forEach {
-            nav.addView(it, LinearLayout.LayoutParams(0, dp(58), 1f))
+            nav.addView(it, LinearLayout.LayoutParams(0, dp(52), 1f))
         }
         main.addView(nav)
         setContentView(main)
@@ -249,50 +251,37 @@ class MainActivity : Activity() {
             })
         }
         servoPanel.addView(seek)
-        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        buttons.addView(actionButton("CERRAR", Color.rgb(55, 75, 100)).apply {
+        // Controles compactos tipo icono para liberar espacio vertical.
+        val servoIconControls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            setPadding(0, dp(2), 0, 0)
+        }
+        val closeServoIcon = TextView(this).apply {
+            text = "▼"
+            textSize = 19f
+            gravity = Gravity.CENTER
+            setTextColor(white)
+            contentDescription = "Cerrar válvula"
+            setBackgroundColor(Color.rgb(55, 75, 100))
             setOnClickListener { seek.progress = 0 }
-        }, LinearLayout.LayoutParams(0, dp(44), 1f))
-        buttons.addView(space(dp(8)))
-        buttons.addView(actionButton("ABRIR", blue).apply {
+        }
+        val openServoIcon = TextView(this).apply {
+            text = "▲"
+            textSize = 19f
+            gravity = Gravity.CENTER
+            setTextColor(white)
+            contentDescription = "Abrir válvula"
+            setBackgroundColor(blue)
             setOnClickListener { seek.progress = 100 }
-        }, LinearLayout.LayoutParams(0, dp(44), 1f))
-        servoPanel.addView(buttons)
+        }
+        servoIconControls.addView(closeServoIcon, LinearLayout.LayoutParams(dp(44), dp(36)))
+        servoIconControls.addView(space(dp(6)))
+        servoIconControls.addView(openServoIcon, LinearLayout.LayoutParams(dp(44), dp(36)))
+        servoPanel.addView(servoIconControls)
         root.addView(servoPanel)
 
-        val timerPanel = panelBox()
-        timerPanel.addView(sectionTitle("TEMPORIZADOR"))
-        timerText = label(formatTime(remainingMs), 28, white, true).apply { gravity = Gravity.CENTER }
-        timerPanel.addView(timerText)
-        timerSwitch = Switch(this).apply {
-            text = "Activar temporizador"
-            setTextColor(white)
-            isChecked = timerRunning
-            setOnCheckedChangeListener { _, checked ->
-                if (checked) startTimer() else stopTimer(reset = false)
-            }
-        }
-        timerPanel.addView(timerSwitch)
-        val timerButtons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        timerButtons.addView(actionButton("AJUSTAR", Color.rgb(55, 75, 100)).apply {
-            setOnClickListener { showTimerSettings() }
-        }, LinearLayout.LayoutParams(0, dp(44), 1f))
-        timerButtons.addView(space(dp(8)))
-        pauseButton = actionButton("PAUSAR", blue).apply {
-            setOnClickListener {
-                if (timerRunning) {
-                    stopTimer(reset = false)
-                    timerSwitch.isChecked = false
-                    text = "REANUDAR"
-                } else {
-                    timerSwitch.isChecked = true
-                    text = "PAUSAR"
-                }
-            }
-        }
-        timerButtons.addView(pauseButton, LinearLayout.LayoutParams(0, dp(44), 1f))
-        timerPanel.addView(timerButtons)
-        root.addView(timerPanel)
+
     }
 
     private fun buildCalendarPage(root: LinearLayout) {
