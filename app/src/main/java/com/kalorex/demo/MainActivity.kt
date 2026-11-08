@@ -21,11 +21,11 @@ import kotlin.math.sin
 
 class MainActivity : Activity() {
 
-    private val bg = Color.rgb(3, 12, 25)
-    private val panel = Color.rgb(9, 28, 48)
-    private val blue = Color.rgb(0, 153, 255)
-    private val green = Color.rgb(0, 220, 125)
-    private val white = Color.WHITE
+    private val bg = Color.rgb(248, 248, 248)
+    private val panel = Color.WHITE
+    private val blue = Color.rgb(198, 0, 28)
+    private val green = Color.rgb(35, 155, 75)
+    private val white = Color.rgb(25, 30, 38)
 
     private var setTemp = 32
     private var timerDurationMs = 30 * 60 * 1000L
@@ -69,14 +69,16 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply { setBackgroundColor(bg); isFillViewport = true }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(10), dp(16), dp(18))
+            setPadding(dp(8), dp(8), dp(8), dp(12))
         }
         scroll.addView(root)
-        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setBackgroundColor(Color.rgb(194, 0, 24)); setPadding(dp(4), 0, dp(4), 0) }
         header.addView(textButton("☰", 27).apply { setOnClickListener { showMenu() } }, LinearLayout.LayoutParams(dp(48), dp(54)))
         val titleBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
         titleBox.addView(label("🔥 KALOREX SMART", 23, white, true))
         titleBox.addView(label(page, 14, Color.LTGRAY))
+        titleBox.getChildAt(0).setTextColor(Color.WHITE)
+        titleBox.getChildAt(1).setTextColor(Color.WHITE)
         header.addView(titleBox, LinearLayout.LayoutParams(0, dp(60), 1f))
         header.addView(textButton("⚙", 25).apply { setOnClickListener { showSettings() } }, LinearLayout.LayoutParams(dp(48), dp(54)))
         root.addView(header)
@@ -93,8 +95,8 @@ class MainActivity : Activity() {
             val b = Button(this).apply {
                 text = when (item) { "Inicio" -> "⌂\nInicio"; "Calendario" -> "▦\nCalendario"; "Temporizador" -> "◷\nReloj"; "Servomotor" -> "⚙\nServo"; else -> "⚙\nAjustes" }
                 textSize = 10f
-                setTextColor(white)
-                setBackgroundTintList(android.content.res.ColorStateList.valueOf(if (item == page) Color.rgb(190, 20, 35) else Color.rgb(40, 58, 78)))
+                setTextColor(if (item == page) Color.WHITE else Color.rgb(30, 35, 40))
+                setBackgroundTintList(android.content.res.ColorStateList.valueOf(if (item == page) Color.rgb(194, 0, 24) else Color.WHITE))
                 setOnClickListener { showPage(item) }
             }
             nav.addView(b, LinearLayout.LayoutParams(0, dp(58), 1f))
@@ -108,8 +110,9 @@ class MainActivity : Activity() {
     private fun buildHomePage(root: LinearLayout) {
         val gaugeWrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
         gauge = TemperatureGauge(this, setTemp) { value -> setTemp = value; saveValues(); updateTemperature() }
-        gaugeWrap.addView(gauge, LinearLayout.LayoutParams(-1, dp(270)))
-        label("Rango: 10 °C – 50 °C", 13, Color.LTGRAY).apply { gravity = Gravity.CENTER }.also { gaugeWrap.addView(it) }
+        gaugeWrap.setBackgroundColor(Color.WHITE)
+        gaugeWrap.addView(gauge, LinearLayout.LayoutParams(-1, dp(300)))
+        label("10 °C                                      70 °C", 14, Color.DKGRAY, true).apply { gravity = Gravity.CENTER }.also { gaugeWrap.addView(it) }
         root.addView(gaugeWrap)
         val status = panelBox()
         status.addView(sectionTitle("ESTADO DEL SISTEMA"))
@@ -152,9 +155,9 @@ class MainActivity : Activity() {
         val panel = panelBox()
         panel.addView(sectionTitle("PROGRAMACIÓN SEMANAL"))
         dayNames.forEachIndexed { i, day ->
-            val card = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(9), dp(10), dp(9)); setBackgroundColor(Color.rgb(18, 40, 61)) }
+            val card = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(9), dp(10), dp(9)); setBackgroundColor(Color.rgb(250, 250, 250)) }
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            top.addView(label(day, 18, white, true), LinearLayout.LayoutParams(0, dp(42), 1f))
+            top.addView(label(day, if (i == 0) 20 else 17, Color.rgb(25, 30, 38), true), LinearLayout.LayoutParams(0, dp(48), 1f))
             val active = Switch(this).apply { isChecked = dayEnabled[i]; text = "Activo"; setTextColor(white); setOnCheckedChangeListener { _, checked -> dayEnabled[i] = checked; saveValues() } }
             top.addView(active); card.addView(top)
             val fields = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -174,10 +177,10 @@ class MainActivity : Activity() {
     }
 
     private fun timeField(value: String, hintText: String): EditText = EditText(this).apply {
-        setText(value); hint = hintText; textSize = 15f; setTextColor(white); setHintTextColor(Color.LTGRAY)
+        setText(value); hint = hintText; textSize = 15f; setTextColor(Color.rgb(25, 30, 38)); setHintTextColor(Color.GRAY)
         gravity = Gravity.CENTER; setSingleLine(true); setPadding(dp(4), dp(2), dp(4), dp(2))
         inputType = if (hintText == "°C") android.text.InputType.TYPE_CLASS_NUMBER else android.text.InputType.TYPE_CLASS_DATETIME or android.text.InputType.TYPE_DATETIME_VARIATION_TIME
-        setBackgroundColor(Color.rgb(35, 55, 75))
+        setBackgroundColor(Color.rgb(245, 245, 245))
     }
 
     private fun simpleWatcher(onText: (String) -> Unit) = object : android.text.TextWatcher {
@@ -189,8 +192,8 @@ class MainActivity : Activity() {
     private fun buildTimerPage(root: LinearLayout) {
         val panel = panelBox()
         panel.addView(sectionTitle("TEMPORIZADOR · CUENTA REGRESIVA"))
-        timerText = label(formatTime(remainingMs), 44, white, true).apply { gravity = Gravity.CENTER; setPadding(0, dp(18), 0, dp(18)); minHeight = dp(110) }
-        panel.addView(timerText, LinearLayout.LayoutParams(-1, dp(150)))
+        timerText = label(formatTime(remainingMs), 56, Color.rgb(194, 0, 24), true).apply { gravity = Gravity.CENTER; setPadding(dp(8), dp(22), dp(8), dp(22)); minHeight = dp(160); setBackgroundColor(Color.rgb(250, 250, 250)) }
+        panel.addView(timerText, LinearLayout.LayoutParams(-1, dp(190)))
         timerSwitch = Switch(this).apply { text = "Activar temporizador"; textSize = 18f; setTextColor(white); isChecked = timerRunning; setOnCheckedChangeListener { _, checked -> if (checked) startTimer() else stopTimer(reset = false) } }
         panel.addView(timerSwitch)
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -228,13 +231,14 @@ class MainActivity : Activity() {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(16), dp(14), dp(16), dp(14))
         setBackgroundColor(panel)
+        elevation = dp(3).toFloat()
         val params = LinearLayout.LayoutParams(-1, -2)
         params.setMargins(0, dp(10), 0, dp(8))
         layoutParams = params
     }
 
     private fun sectionTitle(text: String): TextView =
-        label(text, 13, Color.rgb(130, 185, 225), true).apply {
+        label(text, 13, Color.rgb(190, 0, 24), true).apply {
             setPadding(0, 0, 0, dp(8))
         }
 
@@ -260,7 +264,7 @@ class MainActivity : Activity() {
         Button(this).apply {
             this.text = text
             textSize = 13f
-            setTextColor(white)
+            setTextColor(Color.WHITE)
             setBackgroundTintList(android.content.res.ColorStateList.valueOf(color))
         }
 
@@ -453,7 +457,7 @@ class MainActivity : Activity() {
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val cx = width / 2f; val cy = height / 2f
-            p.color = Color.rgb(205, 215, 225); p.style = Paint.Style.FILL
+            p.color = Color.rgb(225, 228, 232); p.style = Paint.Style.FILL
             canvas.drawRoundRect(cx - dp(105), cy - dp(72), cx + dp(105), cy + dp(72), dp(18).toFloat(), dp(18).toFloat(), p)
             p.color = Color.rgb(32, 39, 49)
             canvas.drawRoundRect(cx - dp(82), cy - dp(58), cx + dp(82), cy + dp(58), dp(14).toFloat(), dp(14).toFloat(), p)
@@ -508,14 +512,14 @@ class MainActivity : Activity() {
             val radius = min(width, height) * 0.36f
             bounds.set(centerX - radius, centerY - radius, centerX + radius, centerY + radius)
 
-            arcPaint.color = Color.rgb(35, 55, 75)
+            arcPaint.color = Color.rgb(220, 225, 230)
             canvas.drawArc(bounds, 135f, 270f, false, arcPaint)
 
             val sweep = ((temperature - 10) / 40f) * 270f
             arcPaint.color = when {
-                temperature >= 40 -> Color.rgb(255, 90, 60)
-                temperature >= 30 -> blue
-                else -> green
+                temperature >= 40 -> Color.rgb(220, 0, 35)
+                temperature >= 30 -> Color.rgb(80, 140, 190)
+                else -> Color.rgb(100, 160, 190)
             }
             canvas.drawArc(bounds, 135f, sweep, false, arcPaint)
 
@@ -577,6 +581,7 @@ class MainActivity : Activity() {
         }
     }
 }
+
 
 
 
