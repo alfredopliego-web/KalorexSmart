@@ -1,4 +1,4 @@
-         package com.kalorex.demo
+package com.kalorex.demo
 
 import android.app.Activity
 import android.app.AlertDialog
@@ -38,6 +38,28 @@ class MainActivity : Activity() {
     private var boilerOn = true
     private var manualOverride = false
     private var lastScheduledActive: Boolean? = null
+    private val coolingHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val coolingRunnable = object : Runnable {
+        override fun run() {
+            if (boilerOn) return
+            if (setTemp > 10) {
+                setTemp = (setTemp - 1).coerceAtLeast(10)
+                updateTemperature()
+                coolingHandler.postDelayed(this, 2_000L)
+            }
+        }
+    }
+
+    private fun beginGradualCooling() {
+        coolingHandler.removeCallbacks(coolingRunnable)
+        if (!boilerOn && setTemp > 10) {
+            coolingHandler.postDelayed(coolingRunnable, 2_000L)
+        }
+    }
+
+    private fun stopGradualCooling() {
+        coolingHandler.removeCallbacks(coolingRunnable)
+    }
     private var servoOpen = 99
     private var wifiConnected = true
     private var displayedMonth = Calendar.getInstance().apply { set(Calendar.DAY_OF_MONTH, 1) }
@@ -120,11 +142,6 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(dp(44), dp(50)))
         main.addView(header)
 
-        pageContainer = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
-        }
-        main.addView(pageContainer)
-
         val nav = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -139,6 +156,11 @@ class MainActivity : Activity() {
             nav.addView(it, LinearLayout.LayoutParams(0, dp(52), 1f))
         }
         main.addView(nav)
+
+        pageContainer = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
+        }
+        main.addView(pageContainer)
         setContentView(main)
 
         showPage("home")
@@ -215,6 +237,7 @@ class MainActivity : Activity() {
         powerButton.setOnClickListener {
             boilerOn = !boilerOn
             manualOverride = true
+            if (boilerOn) stopGradualCooling() else beginGradualCooling()
             updateStatus()
             Toast.makeText(
                 this,
@@ -452,8 +475,14 @@ class MainActivity : Activity() {
 
         if (manualOverride) return
 
+        val wasOn = boilerOn
         boilerOn = scheduledActive
-        if (scheduledActive) setTemp = plan.temperature
+        if (scheduledActive) {
+            stopGradualCooling()
+            setTemp = plan.temperature
+        } else if (wasOn) {
+            beginGradualCooling()
+        }
         updateStatus()
         updateTemperature()
     }
@@ -746,6 +775,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         timer?.cancel()
         scheduleHandler.removeCallbacks(scheduleCheck)
+        coolingHandler.removeCallbacks(coolingRunnable)
         super.onDestroy()
     }
 
