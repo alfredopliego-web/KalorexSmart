@@ -53,7 +53,7 @@ class MainActivity : Activity() {
     private fun buildScreen() {
         val scroll = ScrollView(this).apply {
             setBackgroundColor(bg)
-            fillViewport = true
+            isFillViewport = true
         }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
