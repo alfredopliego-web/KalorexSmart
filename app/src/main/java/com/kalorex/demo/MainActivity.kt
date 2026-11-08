@@ -37,6 +37,8 @@ class MainActivity : Activity() {
     private var timerRunning = false
     private var boilerOn = true
     private var manualOverride = false
+    private var automationEnabled = true
+    private var targetTemperature = setTemp
     private var lastScheduledActive: Boolean? = null
     private val coolingHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val coolingRunnable = object : Runnable {
@@ -59,6 +61,27 @@ class MainActivity : Activity() {
 
     private fun stopGradualCooling() {
         coolingHandler.removeCallbacks(coolingRunnable)
+    }
+    private val heatingHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val heatingRunnable = object : Runnable {
+        override fun run() {
+            if (!boilerOn || !automationEnabled || setTemp >= targetTemperature) return
+            setTemp = (setTemp + 1).coerceAtMost(targetTemperature)
+            updateTemperature()
+            heatingHandler.postDelayed(this, 2_000L)
+        }
+    }
+
+    private fun beginGradualHeating(target: Int) {
+        targetTemperature = target.coerceIn(10, 50)
+        heatingHandler.removeCallbacks(heatingRunnable)
+        if (boilerOn && automationEnabled && setTemp < targetTemperature) {
+            heatingHandler.postDelayed(heatingRunnable, 2_000L)
+        }
+    }
+
+    private fun stopGradualHeating() {
+        heatingHandler.removeCallbacks(heatingRunnable)
     }
     private var servoOpen = 99
     private var wifiConnected = true
@@ -149,8 +172,8 @@ class MainActivity : Activity() {
             setBackgroundColor(panel)
         }
         navHome = navItem("⌂", "Inicio") { showPage("home") }
-        navCalendar = navItem("▦", "Calendario") { showPage("calendar") }
-        navSchedule = navItem("◷", "Programación") { showPage("schedule") }
+        navCalendar = navItem("📅", "Calendario") { showPage("calendar") }
+        navSchedule = navItem("⏰", "Programación") { showPage("schedule") }
         navSettings = navItem("⚙", "Ajustes") { showSettings() }
         listOf(navHome, navCalendar, navSchedule, navSettings).forEach {
             nav.addView(it, LinearLayout.LayoutParams(0, dp(52), 1f))
@@ -203,66 +226,135 @@ class MainActivity : Activity() {
     }
 
     private fun buildHomePage(root: LinearLayout) {
-        val gaugeWrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(0, dp(2), 0, dp(4))
+        // Reloj + estado WiFi en la parte superior, estilo panel de control.
+        val clockWifi = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
+        val clockCard = panelBox()
+        clockCard.orientation = LinearLayout.HORIZONTAL
+        clockCard.gravity = Gravity.CENTER_VERTICAL
+        clockCard.addView(label("◷", 28, blue, true))
+        val clockText = label("", 17, white, true)
+        clockCard.addView(clockText, LinearLayout.LayoutParams(0, -2, 1f))
+        val wifiCard = panelBox()
+        wifiCard.gravity = Gravity.CENTER
+        wifiCard.addView(label("⌁", 25, green, true))
+        wifiCard.addView(label(if (wifiConnected) "En línea" else "Sin conexión", 12,
+            if (wifiConnected) green else Color.RED, true))
+        clockWifi.addView(clockCard, LinearLayout.LayoutParams(0, dp(68), 1.5f))
+        clockWifi.addView(space(dp(8)))
+        clockWifi.addView(wifiCard, LinearLayout.LayoutParams(0, dp(68), 1f))
+        root.addView(clockWifi)
+
+        val clockHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        val clockUpdate = object : Runnable {
+            override fun run() {
+                if (currentPage != "home") return
+                val now = Calendar.getInstance()
+                clockText.text = "%02d:%02d\n%s".format(
+                    now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE),
+                    arrayOf("Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb")[now.get(Calendar.DAY_OF_WEEK)-1]
+                )
+                clockHandler.postDelayed(this, 30_000L)
+            }
+        }
+        clockUpdate.run()
+
+        // Temperatura y objetivo.
+        val gaugePanel = panelBox()
+        gaugePanel.gravity = Gravity.CENTER
+        gaugePanel.addView(sectionTitle("TEMPERATURA ACTUAL"))
         gauge = TemperatureGauge(this, setTemp) { value ->
             setTemp = value.coerceIn(10, 50)
             updateTemperature()
         }
-        gaugeWrap.addView(gauge, LinearLayout.LayoutParams(-1, dp(260)))
-        label("Rango: 10 °C – 50 °C", 13, Color.LTGRAY).apply {
+        gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(230)))
+        gaugePanel.addView(label("Objetivo programado: ${targetTemperature} °C", 15, blue, true).apply {
             gravity = Gravity.CENTER
-            gaugeWrap.addView(this)
+        })
+        root.addView(gaugePanel)
+
+        // Tarjeta de programación con interruptor en el panel principal.
+        val automationPanel = panelBox()
+        val automationRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
-        root.addView(gaugeWrap)
+        automationRow.addView(label("⏰  Programación automática", 16, white, true),
+            LinearLayout.LayoutParams(0, -2, 1f))
+        val automationSwitch = Switch(this).apply {
+            isChecked = automationEnabled
+            setOnCheckedChangeListener { _, checked ->
+                automationEnabled = checked
+                if (checked) {
+                    manualOverride = false
+                    applyScheduleForCurrentTime()
+                    Toast.makeText(this@MainActivity, "Programación activada", Toast.LENGTH_SHORT).show()
+                } else {
+                    manualOverride = true
+                    stopGradualHeating()
+                    Toast.makeText(this@MainActivity, "Programación desconectada", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        automationRow.addView(automationSwitch)
+        automationPanel.addView(automationRow)
+        automationPanel.addView(label(
+            if (automationEnabled) "✓ Activa · Próximo evento: ${nextScheduleDescription()}"
+            else "Desconectada · Control manual",
+            13, if (automationEnabled) green else Color.LTGRAY
+        ))
+        root.addView(automationPanel)
 
-        val statusPanel = panelBox()
-        statusPanel.addView(sectionTitle("ESTADO DEL SISTEMA"))
-        boilerStatus = label("● Boiler encendido", 17, green, true)
-        statusPanel.addView(boilerStatus)
-        wifiText = label("● WiFi conectado", 15, green)
-        statusPanel.addView(wifiText)
-        onlineText = label("Modo demostración · Control local", 13, Color.LTGRAY)
-        statusPanel.addView(onlineText)
-        root.addView(statusPanel)
-
+        // Encendido y estado del boiler.
+        val powerPanel = panelBox()
         val powerRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_VERTICAL
         }
-        powerButton = actionButton("APAGAR BOILER", Color.rgb(190, 45, 55))
+        val boilerInfo = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        boilerInfo.addView(label("♨  Boiler", 18, white, true))
+        boilerInfo.addView(label(if (boilerOn) "ENCENDIDO" else "APAGADO", 15,
+            if (boilerOn) green else Color.RED, true))
+        powerRow.addView(boilerInfo, LinearLayout.LayoutParams(0, -2, 1f))
+        powerButton = actionButton(if (boilerOn) "⏻  APAGAR" else "⏻  ENCENDER",
+            if (boilerOn) Color.rgb(30, 155, 75) else Color.rgb(190, 45, 55))
         powerButton.setOnClickListener {
             boilerOn = !boilerOn
             manualOverride = true
-            if (boilerOn) stopGradualCooling() else beginGradualCooling()
-            updateStatus()
-            Toast.makeText(
-                this,
-                if (boilerOn) "Encendido manual" else "Apagado manual",
-                Toast.LENGTH_SHORT
-            ).show()
-        }
-        powerRow.addView(powerButton, LinearLayout.LayoutParams(0, dp(50), 1f))
-        powerRow.addView(space(dp(8)))
-        powerRow.addView(actionButton("WIFI", blue).apply {
-            setOnClickListener {
-                wifiConnected = !wifiConnected
-                updateStatus()
+            if (boilerOn) {
+                stopGradualCooling()
+                if (automationEnabled) beginGradualHeating(targetTemperature)
+            } else {
+                stopGradualHeating()
+                beginGradualCooling()
             }
-        }, LinearLayout.LayoutParams(0, dp(50), 1f))
-        root.addView(powerRow)
+            updateStatus()
+            showPage("home")
+        }
+        powerRow.addView(powerButton, LinearLayout.LayoutParams(dp(140), dp(52)))
+        powerPanel.addView(powerRow)
+        root.addView(powerPanel)
 
+        // Servomotor / válvula.
         val servoPanel = panelBox()
-        servoPanel.addView(sectionTitle("SERVOMOTOR / VÁLVULA"))
-        servoStatus = label("Apertura: $servoOpen%", 17, white, true)
-        servoPanel.addView(servoStatus)
+        val servoHeading = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        servoHeading.addView(label("♧  Servomotor (Gas)", 16, white, true),
+            LinearLayout.LayoutParams(0, -2, 1f))
+        servoStatus = label("Apertura: $servoOpen%", 15, white, true)
+        servoHeading.addView(servoStatus)
+        servoPanel.addView(servoHeading)
         val seek = SeekBar(this).apply {
             max = 100
             progress = servoOpen
-            progressTintList = android.content.res.ColorStateList.valueOf(blue)
+            progressTintList = android.content.res.ColorStateList.valueOf(green)
             thumbTintList = android.content.res.ColorStateList.valueOf(white)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -274,37 +366,51 @@ class MainActivity : Activity() {
             })
         }
         servoPanel.addView(seek)
-        // Controles compactos tipo icono para liberar espacio vertical.
-        val servoIconControls = LinearLayout(this).apply {
+        val servoControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            setPadding(0, dp(2), 0, 0)
+            gravity = Gravity.END
         }
-        val closeServoIcon = TextView(this).apply {
-            text = "▼"
-            textSize = 19f
-            gravity = Gravity.CENTER
-            setTextColor(white)
-            contentDescription = "Cerrar válvula"
-            setBackgroundColor(Color.rgb(55, 75, 100))
-            setOnClickListener { seek.progress = 0 }
-        }
-        val openServoIcon = TextView(this).apply {
-            text = "▲"
-            textSize = 19f
-            gravity = Gravity.CENTER
-            setTextColor(white)
-            contentDescription = "Abrir válvula"
-            setBackgroundColor(blue)
-            setOnClickListener { seek.progress = 100 }
-        }
-        servoIconControls.addView(closeServoIcon, LinearLayout.LayoutParams(dp(44), dp(36)))
-        servoIconControls.addView(space(dp(6)))
-        servoIconControls.addView(openServoIcon, LinearLayout.LayoutParams(dp(44), dp(36)))
-        servoPanel.addView(servoIconControls)
+        servoControls.addView(actionButton("▼", panel).apply { setOnClickListener { seek.progress = 0 } },
+            LinearLayout.LayoutParams(dp(52), dp(40)))
+        servoControls.addView(space(dp(6)))
+        servoControls.addView(actionButton("▲", blue).apply { setOnClickListener { seek.progress = 100 } },
+            LinearLayout.LayoutParams(dp(52), dp(40)))
+        servoPanel.addView(servoControls)
         root.addView(servoPanel)
 
+        // Estado del sistema al pie del dashboard.
+        val statusPanel = panelBox()
+        statusPanel.addView(sectionTitle("ESTADO DEL SISTEMA"))
+        boilerStatus = label(if (boilerOn) "● Boiler encendido" else "● Boiler apagado", 15,
+            if (boilerOn) green else Color.RED, true)
+        statusPanel.addView(boilerStatus)
+        wifiText = label(if (wifiConnected) "● WiFi conectado" else "● WiFi desconectado", 14,
+            if (wifiConnected) green else Color.RED)
+        statusPanel.addView(wifiText)
+        onlineText = label(
+            if (boilerOn && setTemp < targetTemperature) "Calentando · Incremento gradual"
+            else if (!boilerOn) "Enfriamiento gradual"
+            else "Temperatura estable",
+            13, Color.LTGRAY
+        )
+        statusPanel.addView(onlineText)
+        root.addView(statusPanel)
+    }
 
+    private fun nextScheduleDescription(): String {
+        val now = Calendar.getInstance()
+        val dayIndex = when (now.get(Calendar.DAY_OF_WEEK)) {
+            Calendar.MONDAY -> 0
+            Calendar.TUESDAY -> 1
+            Calendar.WEDNESDAY -> 2
+            Calendar.THURSDAY -> 3
+            Calendar.FRIDAY -> 4
+            Calendar.SATURDAY -> 5
+            else -> 6
+        }
+        val plan = weeklyPlans[dayIndex]
+        return if (plan.enabled) "Encendido ${plan.startTime} · ${plan.temperature} °C"
+        else "Sin evento configurado hoy"
     }
 
     private fun buildCalendarPage(root: LinearLayout) {
@@ -343,11 +449,22 @@ class MainActivity : Activity() {
         val weeklyPanel = panelBox()
         weeklyPanel.addView(sectionTitle("PROGRAMACIÓN SEMANAL"))
         weeklyPanel.addView(label("Configura encendido, apagado y temperatura por día.", 13, Color.LTGRAY))
-        weeklyPanel.addView(actionButton("ACTIVAR AUTOMATIZACIÓN", green).apply {
+        weeklyPanel.addView(actionButton(if (automationEnabled) "⏰ PROGRAMACIÓN CONECTADA" else "⏰ CONECTAR PROGRAMACIÓN", green).apply {
             setOnClickListener {
-                manualOverride = false
-                applyScheduleForCurrentTime()
-                Toast.makeText(this@MainActivity, "Programación automática activada", Toast.LENGTH_SHORT).show()
+                automationEnabled = !automationEnabled
+                if (automationEnabled) {
+                    manualOverride = false
+                    applyScheduleForCurrentTime()
+                } else {
+                    manualOverride = true
+                    stopGradualHeating()
+                }
+                showPage("schedule")
+                Toast.makeText(
+                    this@MainActivity,
+                    if (automationEnabled) "Programación automática activada" else "Programación desconectada",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }, LinearLayout.LayoutParams(-1, dp(44)))
         val names = arrayOf("Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo")
@@ -454,6 +571,8 @@ class MainActivity : Activity() {
         }
         val plan = weeklyPlans[dayIndex]
 
+        if (!automationEnabled) return
+
         val nowMinutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
         val startParts = plan.startTime.split(":")
         val endParts = plan.endTime.split(":")
@@ -479,8 +598,15 @@ class MainActivity : Activity() {
         boilerOn = scheduledActive
         if (scheduledActive) {
             stopGradualCooling()
-            setTemp = plan.temperature
+            if (!wasOn) {
+                beginGradualHeating(plan.temperature)
+            } else if (setTemp < plan.temperature) {
+                beginGradualHeating(plan.temperature)
+            } else {
+                targetTemperature = plan.temperature
+            }
         } else if (wasOn) {
+            stopGradualHeating()
             beginGradualCooling()
         }
         updateStatus()
@@ -776,6 +902,7 @@ class MainActivity : Activity() {
         timer?.cancel()
         scheduleHandler.removeCallbacks(scheduleCheck)
         coolingHandler.removeCallbacks(coolingRunnable)
+        heatingHandler.removeCallbacks(heatingRunnable)
         super.onDestroy()
     }
 
