@@ -24,11 +24,28 @@ import android.app.TimePickerDialog
 
 class MainActivity : Activity() {
 
-    private val bg = Color.rgb(3, 12, 25)
-    private val panel = Color.rgb(9, 28, 48)
-    private val blue = Color.rgb(0, 153, 255)
-    private val green = Color.rgb(0, 220, 125)
-    private val white = Color.WHITE
+    private var themeMode = 0 // 0 = Noche, 1 = Calorex claro
+    private var bg = Color.rgb(3, 12, 25)
+    private var panel = Color.rgb(9, 28, 48)
+    private var blue = Color.rgb(0, 153, 255)
+    private var green = Color.rgb(0, 220, 125)
+    private var white = Color.WHITE
+
+    private fun applyThemeColors() {
+        if (themeMode == 0) {
+            bg = Color.rgb(3, 12, 25)
+            panel = Color.rgb(9, 28, 48)
+            blue = Color.rgb(0, 153, 255)
+            green = Color.rgb(0, 220, 125)
+            white = Color.WHITE
+        } else {
+            bg = Color.rgb(247, 247, 245)
+            panel = Color.WHITE
+            blue = Color.rgb(190, 20, 48)
+            green = Color.rgb(30, 155, 75)
+            white = Color.rgb(45, 48, 52)
+        }
+    }
 
     private var setTemp = 32
     private var timerDurationMs = 30 * 60 * 1000L
@@ -122,6 +139,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyThemeColors()
         buildScreen()
     }
 
@@ -226,6 +244,7 @@ class MainActivity : Activity() {
         when (page) {
             "calendar" -> buildCalendarPage(content)
             "schedule" -> buildSchedulePage(content)
+            "servo" -> buildServoPage(content)
             else -> buildHomePage(content)
         }
         scroll.addView(content)
@@ -334,7 +353,7 @@ class MainActivity : Activity() {
             if (boilerOn) green else Color.RED, true)
         boilerInfo.addView(homeBoilerStatus)
         powerRow.addView(boilerInfo, LinearLayout.LayoutParams(0, -2, 1f))
-        powerButton = actionButton(if (boilerOn) "⏻  APAGAR" else "⏻  ENCENDER",
+        powerButton = actionButton(if (boilerOn) "🔥  ⏻ APAGAR" else "⏻  ENCENDER",
             if (boilerOn) Color.rgb(30, 155, 75) else Color.rgb(190, 45, 55))
         powerButton.setOnClickListener {
             boilerOn = !boilerOn
@@ -353,43 +372,12 @@ class MainActivity : Activity() {
         powerPanel.addView(powerRow)
         root.addView(powerPanel)
 
-        // Servomotor / válvula.
-        val servoPanel = panelBox()
-        val servoHeading = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        servoHeading.addView(label("♧  Servomotor (Gas)", 16, white, true),
-            LinearLayout.LayoutParams(0, -2, 1f))
-        servoStatus = label("Apertura: $servoOpen%", 15, white, true)
-        servoHeading.addView(servoStatus)
-        servoPanel.addView(servoHeading)
-        val seek = SeekBar(this).apply {
-            max = 100
-            progress = servoOpen
-            progressTintList = android.content.res.ColorStateList.valueOf(green)
-            thumbTintList = android.content.res.ColorStateList.valueOf(white)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    servoOpen = progress
-                    servoStatus.text = "Apertura: $servoOpen%"
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-            })
-        }
-        servoPanel.addView(seek)
-        val servoControls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
-        }
-        servoControls.addView(actionButton("▼", panel).apply { setOnClickListener { seek.progress = 0 } },
-            LinearLayout.LayoutParams(dp(52), dp(40)))
-        servoControls.addView(space(dp(6)))
-        servoControls.addView(actionButton("▲", blue).apply { setOnClickListener { seek.progress = 100 } },
-            LinearLayout.LayoutParams(dp(52), dp(40)))
-        servoPanel.addView(servoControls)
-        root.addView(servoPanel)
+        // El servomotor se controla desde su propia pestaña.
+        val servoShortcut = panelBox()
+        servoShortcut.addView(actionButton("♧  ABRIR CONTROL DE SERVOMOTOR", blue).apply {
+            setOnClickListener { showPage("servo") }
+        }, LinearLayout.LayoutParams(-1, dp(44)))
+        root.addView(servoShortcut)
 
         // Estado del sistema al pie del dashboard.
         val statusPanel = panelBox()
@@ -408,6 +396,47 @@ class MainActivity : Activity() {
         )
         statusPanel.addView(onlineText)
         root.addView(statusPanel)
+    }
+
+    private fun buildServoPage(root: LinearLayout) {
+        val servoPanel = panelBox()
+        servoPanel.addView(sectionTitle("CONTROL DE SERVOMOTOR (GAS)"))
+        val heading = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        heading.addView(label("Apertura de válvula", 16, white, true),
+            LinearLayout.LayoutParams(0, -2, 1f))
+        servoStatus = label("$servoOpen%", 18, green, true)
+        heading.addView(servoStatus)
+        servoPanel.addView(heading)
+        val seek = SeekBar(this).apply {
+            max = 100
+            progress = servoOpen
+            progressTintList = android.content.res.ColorStateList.valueOf(green)
+            thumbTintList = android.content.res.ColorStateList.valueOf(white)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    servoOpen = progress
+                    servoStatus.text = "$servoOpen%"
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
+        }
+        servoPanel.addView(seek)
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        controls.addView(actionButton("CERRAR", panel).apply { setOnClickListener { seek.progress = 0 } },
+            LinearLayout.LayoutParams(dp(100), dp(42)))
+        controls.addView(space(dp(8)))
+        controls.addView(actionButton("ABRIR", blue).apply { setOnClickListener { seek.progress = 100 } },
+            LinearLayout.LayoutParams(dp(100), dp(42)))
+        servoPanel.addView(controls)
+        servoPanel.addView(label("Control de demostración: no acciona un servomotor físico sin conexión al hardware.", 12, Color.LTGRAY))
+        root.addView(servoPanel)
     }
 
     private fun nextScheduleDescription(): String {
@@ -590,7 +619,7 @@ class MainActivity : Activity() {
                 homeBoilerStatus.text = if (boilerOn) "ENCENDIDO" else "APAGADO"
                 homeBoilerStatus.setTextColor(if (boilerOn) green else Color.rgb(255, 90, 90))
             }
-            powerButton.text = if (boilerOn) "⏻ APAGAR" else "⏻ ENCENDER"
+            powerButton.text = if (boilerOn) "🔥  ⏻ APAGAR" else "⏻ ENCENDER"
             powerButton.setBackgroundTintList(
                 android.content.res.ColorStateList.valueOf(
                     if (boilerOn) green else Color.rgb(190, 45, 55)
@@ -800,7 +829,7 @@ class MainActivity : Activity() {
             .setItems(options) { _, which ->
                 when (which) {
                     1 -> showTimerSettings()
-                    2 -> showServoInfo()
+                    2 -> showPage("servo")
                     3 -> showSettings()
                 }
             }
@@ -813,6 +842,7 @@ class MainActivity : Activity() {
             "Temperatura objetivo: $setTemp °C",
             "Temporizador: ${timerDurationMs / 60000} minutos",
             "Estado WiFi: ${if (wifiConnected) "Conectado" else "Desconectado"}",
+            "Tema de la aplicación: ${if (themeMode == 0) "Noche" else "Calorex claro"}",
             "Información de la aplicación"
         )
         AlertDialog.Builder(this)
@@ -825,7 +855,8 @@ class MainActivity : Activity() {
                         wifiConnected = !wifiConnected
                         updateStatus()
                     }
-                    3 -> AlertDialog.Builder(this)
+                    3 -> showThemeSettings()
+                    4 -> AlertDialog.Builder(this)
                         .setTitle("KalorexSmart")
                         .setMessage("Interfaz de demostración. Para controlar un boiler real se requiere integrar el módulo WiFi y el sistema de control compatible.")
                         .setPositiveButton("Aceptar", null)
@@ -833,6 +864,21 @@ class MainActivity : Activity() {
                 }
             }
             .setNegativeButton("Cerrar", null)
+            .show()
+    }
+
+    private fun showThemeSettings() {
+        val choices = arrayOf("Noche · Azul y verde", "Calorex claro · Rojo y blanco")
+        AlertDialog.Builder(this)
+            .setTitle("Tema de la aplicación")
+            .setSingleChoiceItems(choices, themeMode) { dialog, which ->
+                themeMode = which
+                applyThemeColors()
+                dialog.dismiss()
+                buildScreen()
+                Toast.makeText(this, "Tema aplicado", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancelar", null)
             .show()
     }
 
@@ -993,15 +1039,6 @@ class MainActivity : Activity() {
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        private val bubblePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.FILL
-        }
-        private val bubbleTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(50, 52, 57)
-            textAlign = Paint.Align.CENTER
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
         private val bounds = RectF()
         private var temperature = initialTemperature.coerceIn(0, 70)
         private var target = targetTemperature.coerceIn(0, 70)
@@ -1075,16 +1112,7 @@ class MainActivity : Activity() {
             canvas.drawText("0°", cx - radius * 0.82f, cy + radius * 0.98f, captionPaint)
             canvas.drawText("70°", cx + radius * 0.82f, cy + radius * 0.98f, captionPaint)
 
-            // White floating bubble marks the programmed target.
-            val targetSweep = (target / 70f) * 270f
-            val markerAngle = Math.toRadians((135f + targetSweep).toDouble())
-            val markerX = cx + (radius + dp(4)) * cos(markerAngle).toFloat()
-            val markerY = cy + (radius + dp(4)) * sin(markerAngle).toFloat()
-            val bubbleRadius = dp(27).toFloat()
-            canvas.drawCircle(markerX, markerY + dp(2), bubbleRadius, shadowPaint)
-            canvas.drawCircle(markerX, markerY, bubbleRadius, bubblePaint)
-            bubbleTextPaint.textSize = dp(15).toFloat()
-            canvas.drawText("${target}°", markerX, markerY + dp(5), bubbleTextPaint)
+
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
