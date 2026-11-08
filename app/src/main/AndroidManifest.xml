@@ -1,11 +1,12 @@
 
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.kalorex.demo">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Permite reprogramar las alarmas después de reiniciar el teléfono -->
     <uses-permission
         android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Permite programar alarmas exactas -->
     <uses-permission
         android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
@@ -15,6 +16,7 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
+        <!-- Pantalla principal -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -26,6 +28,7 @@
 
         </activity>
 
+        <!-- Receptor para recuperar la programación semanal -->
         <receiver
             android:name=".WeeklyScheduleReceiver"
             android:enabled="true"
