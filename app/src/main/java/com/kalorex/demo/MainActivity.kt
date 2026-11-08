@@ -63,25 +63,37 @@ class MainActivity : Activity() {
         coolingHandler.removeCallbacks(coolingRunnable)
     }
     private val heatingHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var heatingRunning = false
     private val heatingRunnable = object : Runnable {
         override fun run() {
-            if (!boilerOn || !automationEnabled || setTemp >= targetTemperature) return
+            if (!boilerOn || !automationEnabled || setTemp >= targetTemperature) {
+                heatingRunning = false
+                return
+            }
             setTemp = (setTemp + 1).coerceAtMost(targetTemperature)
             updateTemperature()
-            heatingHandler.postDelayed(this, 2_000L)
+            if (setTemp < targetTemperature) {
+                heatingHandler.postDelayed(this, 2_000L)
+            } else {
+                heatingRunning = false
+            }
         }
     }
 
     private fun beginGradualHeating(target: Int) {
         targetTemperature = target.coerceIn(10, 50)
-        heatingHandler.removeCallbacks(heatingRunnable)
-        if (boilerOn && automationEnabled && setTemp < targetTemperature) {
+        // Schedule checking runs every second; do not restart this 2-second timer each pass.
+        if (boilerOn && automationEnabled && setTemp < targetTemperature && !heatingRunning) {
+            heatingRunning = true
             heatingHandler.postDelayed(heatingRunnable, 2_000L)
+        } else if (setTemp >= targetTemperature) {
+            stopGradualHeating()
         }
     }
 
     private fun stopGradualHeating() {
         heatingHandler.removeCallbacks(heatingRunnable)
+        heatingRunning = false
     }
     private var servoOpen = 99
     private var wifiConnected = true
