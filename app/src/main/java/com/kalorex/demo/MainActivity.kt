@@ -2,6 +2,13 @@ package com.kalorex.demo
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import java.util.Calendar
+import java.util.Locale
 import android.os.Bundle
 import android.os.CountDownTimer
 import android.graphics.Canvas
@@ -52,11 +59,13 @@ class MainActivity : Activity() {
     private lateinit var onlineText: TextView
     private lateinit var powerButton: Button
     private lateinit var pauseButton: Button
+    private lateinit var clockText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("kalorex_settings", MODE_PRIVATE)
         loadSavedValues()
+        WeeklyScheduleReceiver.scheduleAll(this)
         buildScreen()
     }
 
@@ -82,6 +91,8 @@ class MainActivity : Activity() {
         header.addView(titleBox, LinearLayout.LayoutParams(0, dp(60), 1f))
         header.addView(textButton("⚙", 25).apply { setOnClickListener { showSettings() } }, LinearLayout.LayoutParams(dp(48), dp(54)))
         root.addView(header)
+        clockText = label(currentDateTime(), 14, Color.DKGRAY, true).apply { gravity = Gravity.CENTER; setPadding(0, dp(8), 0, dp(8)) }
+        root.addView(clockText)
 
         when (page) {
             "Servomotor" -> buildServoPage(root)
@@ -122,7 +133,7 @@ class MainActivity : Activity() {
         root.addView(status)
         val powerRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         powerButton = actionButton(if (boilerOn) "🔥 APAGAR BOILER" else "🔥 ENCENDER BOILER", Color.rgb(190, 45, 55))
-        powerButton.setOnClickListener { boilerOn = !boilerOn; saveValues(); updateStatus() }
+        powerButton.setOnClickListener { boilerOn = !boilerOn; saveValues(); updateStatus(); gauge.invalidate() }
         powerRow.addView(powerButton, LinearLayout.LayoutParams(0, dp(56), 1f)); powerRow.addView(space(dp(10)))
         val wifiButton = actionButton("WIFI", blue).apply { setOnClickListener { wifiConnected = !wifiConnected; saveValues(); updateStatus() } }
         powerRow.addView(wifiButton, LinearLayout.LayoutParams(0, dp(56), 1f)); root.addView(powerRow)
@@ -173,7 +184,7 @@ class MainActivity : Activity() {
             val cp = LinearLayout.LayoutParams(-1, -2); cp.setMargins(0, dp(5), 0, dp(5)); panel.addView(card, cp)
         }
         root.addView(panel)
-        root.addView(actionButton("GUARDAR PROGRAMACIÓN", Color.rgb(190, 20, 35)).apply { setOnClickListener { saveValues(); Toast.makeText(this@MainActivity, "Calendario guardado en el teléfono", Toast.LENGTH_SHORT).show() } })
+        root.addView(actionButton("GUARDAR PROGRAMACIÓN", Color.rgb(190, 20, 35)).apply { setOnClickListener { saveValues(); WeeklyScheduleReceiver.scheduleAll(this@MainActivity); Toast.makeText(this@MainActivity, "Programación semanal guardada", Toast.LENGTH_SHORT).show() } })
     }
 
     private fun timeField(value: String, hintText: String): EditText = EditText(this).apply {
@@ -276,7 +287,10 @@ class MainActivity : Activity() {
 
     private fun updateTemperature() {
         if (::gauge.isInitialized) gauge.setTemperature(setTemp)
+        if (::clockText.isInitialized) clockText.text = currentDateTime()
     }
+
+    private fun currentDateTime(): String = java.text.SimpleDateFormat("EEEE, dd MMM yyyy · hh:mm:ss a", Locale("es", "MX")).format(java.util.Date()).replaceFirstChar { it.uppercase() }
 
     private fun updateStatus() {
         if (::boilerStatus.isInitialized) {
@@ -529,6 +543,20 @@ class MainActivity : Activity() {
             canvas.drawText("TEMPERATURA", centerX, centerY + dp(38), textPaint)
             smallPaint.textSize = dp(13).toFloat()
             canvas.drawText("°C", centerX, centerY + dp(60), smallPaint)
+            if (boilerOn) {
+                val flamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 105, 20); style = Paint.Style.FILL }
+                val fx = centerX
+                val fy = centerY + radius * 0.60f
+                val path = android.graphics.Path().apply {
+                    moveTo(fx, fy + dp(22))
+                    cubicTo(fx - dp(28), fy + dp(2), fx - dp(12), fy - dp(20), fx, fy - dp(30))
+                    cubicTo(fx + dp(23), fy - dp(5), fx + dp(24), fy + dp(8), fx, fy + dp(22))
+                    close()
+                }
+                canvas.drawPath(path, flamePaint)
+                flamePaint.color = Color.YELLOW
+                canvas.drawOval(fx - dp(6).toFloat(), fy, fx + dp(6).toFloat(), fy + dp(13), flamePaint)
+            }
 
             val markerAngle = Math.toRadians((135f + sweep).toDouble())
             val markerX = centerX + radius * cos(markerAngle).toFloat()
@@ -582,6 +610,59 @@ class MainActivity : Activity() {
     }
 }
 
+
+
+
+
+
+/** Alarmas semanales persistentes. Requiere declarar este receiver en AndroidManifest.xml. */
+class WeeklyScheduleReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        val prefs = context.getSharedPreferences("kalorex_settings", Context.MODE_PRIVATE)
+        if (intent?.action == Intent.ACTION_BOOT_COMPLETED) { scheduleAll(context); return }
+        val start = intent?.getBooleanExtra("isStart", true) ?: true
+        val target = intent?.getIntExtra("targetTemp", 40) ?: 40
+        prefs.edit().putBoolean("boilerOn", start).putInt("scheduledTarget", if (start) target else prefs.getInt("setTemp", 32)).apply()
+        scheduleAll(context)
+    }
+
+    companion object {
+        fun scheduleAll(context: Context) {
+            val prefs = context.getSharedPreferences("kalorex_settings", Context.MODE_PRIVATE)
+            val alarm = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val now = Calendar.getInstance()
+            for (day in 0..6) {
+                if (!prefs.getBoolean("enabled$day", true)) continue
+                scheduleEvent(context, alarm, prefs, day, prefs.getString("start$day", "06:00") ?: "06:00", true, now)
+                scheduleEvent(context, alarm, prefs, day, prefs.getString("end$day", "08:00") ?: "08:00", false, now)
+            }
+        }
+
+        private fun scheduleEvent(context: Context, alarm: AlarmManager, prefs: android.content.SharedPreferences, day: Int, time: String, isStart: Boolean, now: Calendar) {
+            val parts = time.trim().split(":")
+            val hour = parts.getOrNull(0)?.toIntOrNull() ?: return
+            val minute = parts.getOrNull(1)?.toIntOrNull() ?: return
+            if (hour !in 0..23 || minute !in 0..59) return
+            val cal = Calendar.getInstance().apply {
+                set(Calendar.DAY_OF_WEEK, day + 1)
+                set(Calendar.HOUR_OF_DAY, hour)
+                set(Calendar.MINUTE, minute)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+                while (timeInMillis <= now.timeInMillis) add(Calendar.DAY_OF_YEAR, 7)
+            }
+            val id = day * 2 + if (isStart) 0 else 1
+            val intent = Intent(context, WeeklyScheduleReceiver::class.java).apply {
+                action = "com.kalorex.demo.WEEKLY_$id"
+                putExtra("isStart", isStart)
+                putExtra("targetTemp", prefs.getInt("temp$day", 40))
+            }
+            val pi = PendingIntent.getBroadcast(context, id, intent, PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+            else alarm.setExact(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+        }
+    }
+}
 
 
 
