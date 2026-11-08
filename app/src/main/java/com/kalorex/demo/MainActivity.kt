@@ -1,4 +1,4 @@
-          package com.kalorex.demo
+package com.kalorex.demo
 
 import android.app.Activity
 import android.app.AlertDialog
@@ -36,6 +36,7 @@ class MainActivity : Activity() {
     private var timer: CountDownTimer? = null
     private var timerRunning = false
     private var boilerOn = true
+    private var manualOverride = false
     private var servoOpen = 99
     private var wifiConnected = true
     private var displayedMonth = Calendar.getInstance().apply { set(Calendar.DAY_OF_MONTH, 1) }
@@ -65,48 +66,132 @@ class MainActivity : Activity() {
         buildScreen()
     }
 
+    private lateinit var pageContainer: FrameLayout
+    private lateinit var navHome: TextView
+    private lateinit var navCalendar: TextView
+    private lateinit var navSchedule: TextView
+    private lateinit var navSettings: TextView
+    private var currentPage = "home"
+    private val scheduleHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val scheduleCheck = object : Runnable {
+        override fun run() {
+            applyScheduleForCurrentTime()
+            scheduleHandler.postDelayed(this, 30_000L)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        scheduleHandler.removeCallbacks(scheduleCheck)
+        scheduleHandler.post(scheduleCheck)
+    }
+
+    override fun onPause() {
+        scheduleHandler.removeCallbacks(scheduleCheck)
+        super.onPause()
+    }
+
     private fun buildScreen() {
-        val scroll = ScrollView(this).apply {
-            setBackgroundColor(bg)
-            isFillViewport = true
-        }
-        val root = LinearLayout(this).apply {
+        val main = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(10), dp(16), dp(18))
+            setBackgroundColor(bg)
         }
-        scroll.addView(root)
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(4))
         }
-        val menu = textButton("☰", 28).apply { setOnClickListener { showMenu() } }
-        header.addView(menu, LinearLayout.LayoutParams(dp(48), dp(54)))
+        header.addView(textButton("☰", 25).apply {
+            setOnClickListener { showMenu() }
+        }, LinearLayout.LayoutParams(dp(44), dp(50)))
         val titleBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
         }
-        titleBox.addView(label("🔥 KALOREX", 27, white, true))
-        titleBox.addView(label("Control Inteligente de Boiler", 14, Color.LTGRAY))
-        header.addView(titleBox, LinearLayout.LayoutParams(0, dp(60), 1f))
-        header.addView(textButton("⚙", 25).apply {
+        titleBox.addView(label("🔥 KALOREX", 25, white, true))
+        titleBox.addView(label("Control Inteligente de Boiler", 12, Color.LTGRAY))
+        header.addView(titleBox, LinearLayout.LayoutParams(0, dp(54), 1f))
+        header.addView(textButton("⚙", 24).apply {
             setOnClickListener { showSettings() }
-        }, LinearLayout.LayoutParams(dp(48), dp(54)))
-        root.addView(header)
+        }, LinearLayout.LayoutParams(dp(44), dp(50)))
+        main.addView(header)
 
+        pageContainer = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
+        }
+        main.addView(pageContainer)
+
+        val nav = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(5), dp(5), dp(5), dp(8))
+            setBackgroundColor(panel)
+        }
+        navHome = navItem("⌂", "Inicio") { showPage("home") }
+        navCalendar = navItem("▦", "Calendario") { showPage("calendar") }
+        navSchedule = navItem("◷", "Programación") { showPage("schedule") }
+        navSettings = navItem("⚙", "Ajustes") { showSettings() }
+        listOf(navHome, navCalendar, navSchedule, navSettings).forEach {
+            nav.addView(it, LinearLayout.LayoutParams(0, dp(58), 1f))
+        }
+        main.addView(nav)
+        setContentView(main)
+
+        showPage("home")
+        updateStatus()
+        applyScheduleForCurrentTime()
+    }
+
+    private fun navItem(symbol: String, caption: String, action: () -> Unit): TextView =
+        TextView(this).apply {
+            text = "$symbol\n$caption"
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(Color.LTGRAY)
+            setOnClickListener { action() }
+        }
+
+    private fun showPage(page: String) {
+        currentPage = page
+        pageContainer.removeAllViews()
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(bg)
+            isFillViewport = true
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(4), dp(14), dp(14))
+        }
+        when (page) {
+            "calendar" -> buildCalendarPage(content)
+            "schedule" -> buildSchedulePage(content)
+            else -> buildHomePage(content)
+        }
+        scroll.addView(content)
+        pageContainer.addView(scroll)
+        val activeColor = blue
+        navHome.setTextColor(if (page == "home") activeColor else Color.LTGRAY)
+        navCalendar.setTextColor(if (page == "calendar") activeColor else Color.LTGRAY)
+        navSchedule.setTextColor(if (page == "schedule") activeColor else Color.LTGRAY)
+        navSettings.setTextColor(Color.LTGRAY)
+    }
+
+    private fun buildHomePage(root: LinearLayout) {
         val gaugeWrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(0, dp(2), 0, dp(4))
         }
         gauge = TemperatureGauge(this, setTemp) { value ->
-            setTemp = value
+            setTemp = value.coerceIn(10, 50)
             updateTemperature()
         }
-        gaugeWrap.addView(gauge, LinearLayout.LayoutParams(-1, dp(270)))
-        val range = label("Rango: 10 °C – 50 °C", 13, Color.LTGRAY)
-        range.gravity = Gravity.CENTER
-        gaugeWrap.addView(range)
+        gaugeWrap.addView(gauge, LinearLayout.LayoutParams(-1, dp(260)))
+        label("Rango: 10 °C – 50 °C", 13, Color.LTGRAY).apply {
+            gravity = Gravity.CENTER
+            gaugeWrap.addView(this)
+        }
         root.addView(gaugeWrap)
 
         val statusPanel = panelBox()
@@ -126,23 +211,24 @@ class MainActivity : Activity() {
         powerButton = actionButton("APAGAR BOILER", Color.rgb(190, 45, 55))
         powerButton.setOnClickListener {
             boilerOn = !boilerOn
+            manualOverride = true
             updateStatus()
         }
-        powerRow.addView(powerButton, LinearLayout.LayoutParams(0, dp(52), 1f))
-        powerRow.addView(space(dp(10)))
-        val wifiButton = actionButton("WIFI", blue)
-        wifiButton.setOnClickListener {
-            wifiConnected = !wifiConnected
-            updateStatus()
-        }
-        powerRow.addView(wifiButton, LinearLayout.LayoutParams(0, dp(52), 1f))
+        powerRow.addView(powerButton, LinearLayout.LayoutParams(0, dp(50), 1f))
+        powerRow.addView(space(dp(8)))
+        powerRow.addView(actionButton("WIFI", blue).apply {
+            setOnClickListener {
+                wifiConnected = !wifiConnected
+                updateStatus()
+            }
+        }, LinearLayout.LayoutParams(0, dp(50), 1f))
         root.addView(powerRow)
 
         val servoPanel = panelBox()
         servoPanel.addView(sectionTitle("SERVOMOTOR / VÁLVULA"))
-        servoStatus = label("Apertura: $servoOpen%", 18, white, true)
+        servoStatus = label("Apertura: $servoOpen%", 17, white, true)
         servoPanel.addView(servoStatus)
-        val servoSeek = SeekBar(this).apply {
+        val seek = SeekBar(this).apply {
             max = 100
             progress = servoOpen
             progressTintList = android.content.res.ColorStateList.valueOf(blue)
@@ -156,105 +242,112 @@ class MainActivity : Activity() {
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {}
             })
         }
-        servoPanel.addView(servoSeek)
-        val servoButtons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val closeServo = actionButton("CERRAR", Color.rgb(55, 75, 100))
-        closeServo.setOnClickListener { servoSeek.progress = 0 }
-        val openServo = actionButton("ABRIR", blue)
-        openServo.setOnClickListener { servoSeek.progress = 100 }
-        servoButtons.addView(closeServo, LinearLayout.LayoutParams(0, dp(46), 1f))
-        servoButtons.addView(space(dp(8)))
-        servoButtons.addView(openServo, LinearLayout.LayoutParams(0, dp(46), 1f))
-        servoPanel.addView(servoButtons)
+        servoPanel.addView(seek)
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        buttons.addView(actionButton("CERRAR", Color.rgb(55, 75, 100)).apply {
+            setOnClickListener { seek.progress = 0 }
+        }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        buttons.addView(space(dp(8)))
+        buttons.addView(actionButton("ABRIR", blue).apply {
+            setOnClickListener { seek.progress = 100 }
+        }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        servoPanel.addView(buttons)
         root.addView(servoPanel)
 
         val timerPanel = panelBox()
         timerPanel.addView(sectionTitle("TEMPORIZADOR"))
-        timerText = label(formatTime(remainingMs), 30, white, true).apply {
-            gravity = Gravity.CENTER
-        }
+        timerText = label(formatTime(remainingMs), 28, white, true).apply { gravity = Gravity.CENTER }
         timerPanel.addView(timerText)
         timerSwitch = Switch(this).apply {
             text = "Activar temporizador"
             setTextColor(white)
-            isChecked = false
+            isChecked = timerRunning
             setOnCheckedChangeListener { _, checked ->
                 if (checked) startTimer() else stopTimer(reset = false)
             }
         }
         timerPanel.addView(timerSwitch)
         val timerButtons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val setTimer = actionButton("AJUSTAR", Color.rgb(55, 75, 100))
-        setTimer.setOnClickListener { showTimerSettings() }
-        pauseButton = actionButton("PAUSAR", blue)
-        pauseButton.setOnClickListener {
-            if (timerRunning) {
-                stopTimer(reset = false)
-                timerSwitch.isChecked = false
-                pauseButton.text = "REANUDAR"
-            } else {
-                timerSwitch.isChecked = true
-                pauseButton.text = "PAUSAR"
+        timerButtons.addView(actionButton("AJUSTAR", Color.rgb(55, 75, 100)).apply {
+            setOnClickListener { showTimerSettings() }
+        }, LinearLayout.LayoutParams(0, dp(44), 1f))
+        timerButtons.addView(space(dp(8)))
+        pauseButton = actionButton("PAUSAR", blue).apply {
+            setOnClickListener {
+                if (timerRunning) {
+                    stopTimer(reset = false)
+                    timerSwitch.isChecked = false
+                    text = "REANUDAR"
+                } else {
+                    timerSwitch.isChecked = true
+                    text = "PAUSAR"
+                }
             }
         }
-        timerButtons.addView(setTimer, LinearLayout.LayoutParams(0, dp(46), 1f))
-        timerButtons.addView(space(dp(8)))
-        timerButtons.addView(pauseButton, LinearLayout.LayoutParams(0, dp(46), 1f))
+        timerButtons.addView(pauseButton, LinearLayout.LayoutParams(0, dp(44), 1f))
         timerPanel.addView(timerButtons)
         root.addView(timerPanel)
+    }
 
+    private fun buildCalendarPage(root: LinearLayout) {
         val calendarPanel = panelBox()
         calendarPanel.addView(sectionTitle("CALENDARIO MENSUAL"))
         val monthHeader = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val prevMonth = textButton("‹", 30).apply {
+        monthHeader.addView(textButton("‹", 30).apply {
             setOnClickListener {
                 displayedMonth.add(Calendar.MONTH, -1)
                 renderMonthlyCalendar()
             }
-        }
-        monthHeader.addView(prevMonth, LinearLayout.LayoutParams(dp(42), dp(44)))
+        }, LinearLayout.LayoutParams(dp(42), dp(44)))
         monthlyTitle = label("", 17, white, true).apply { gravity = Gravity.CENTER }
         monthHeader.addView(monthlyTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
-        val nextMonth = textButton("›", 30).apply {
+        monthHeader.addView(textButton("›", 30).apply {
             setOnClickListener {
                 displayedMonth.add(Calendar.MONTH, 1)
                 renderMonthlyCalendar()
             }
-        }
-        monthHeader.addView(nextMonth, LinearLayout.LayoutParams(dp(42), dp(44)))
+        }, LinearLayout.LayoutParams(dp(42), dp(44)))
         calendarPanel.addView(monthHeader)
         monthlyCalendarGrid = GridLayout(this).apply {
             columnCount = 7
             useDefaultMargins = false
         }
         calendarPanel.addView(monthlyCalendarGrid)
-        calendarPanel.addView(label("Toca un día para ver o agregar una programación.", 12, Color.LTGRAY))
+        calendarPanel.addView(label("Toca un día para consultar la programación.", 12, Color.LTGRAY))
         root.addView(calendarPanel)
+        renderMonthlyCalendar()
+    }
 
+    private fun buildSchedulePage(root: LinearLayout) {
         val weeklyPanel = panelBox()
         weeklyPanel.addView(sectionTitle("PROGRAMACIÓN SEMANAL"))
-        weeklyPanel.addView(label("Configura horario y temperatura para cada día.", 13, Color.LTGRAY))
-        val dayNames = arrayOf("Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo")
-        for (index in dayNames.indices) {
+        weeklyPanel.addView(label("Configura encendido, apagado y temperatura por día.", 13, Color.LTGRAY))
+        weeklyPanel.addView(actionButton("ACTIVAR AUTOMATIZACIÓN", green).apply {
+            setOnClickListener {
+                manualOverride = false
+                applyScheduleForCurrentTime()
+                Toast.makeText(this@MainActivity, "Programación automática activada", Toast.LENGTH_SHORT).show()
+            }
+        }, LinearLayout.LayoutParams(-1, dp(44)))
+        val names = arrayOf("Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo")
+        names.forEachIndexed { index, name ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, dp(5), 0, dp(5))
             }
             val plan = weeklyPlans[index]
-            val dayLabel = label(dayNames[index], 14, white, true)
-            row.addView(dayLabel, LinearLayout.LayoutParams(dp(78), -2))
+            row.addView(label(name, 14, white, true), LinearLayout.LayoutParams(dp(78), -2))
             val detail = label(planText(plan), 12, Color.LTGRAY)
             row.addView(detail, LinearLayout.LayoutParams(0, -2, 1f))
-            val edit = actionButton("EDITAR", blue).apply {
-                setOnClickListener { editWeeklyPlan(index, dayNames[index], detail) }
-            }
-            row.addView(edit, LinearLayout.LayoutParams(dp(82), dp(42)))
+            row.addView(actionButton("EDITAR", blue).apply {
+                setOnClickListener { editWeeklyPlan(index, name, detail) }
+            }, LinearLayout.LayoutParams(dp(82), dp(42)))
             weeklyPanel.addView(row)
-            if (index < dayNames.lastIndex) {
+            if (index < names.lastIndex) {
                 weeklyPanel.addView(View(this).apply {
                     setBackgroundColor(Color.rgb(30, 52, 73))
                     layoutParams = LinearLayout.LayoutParams(-1, dp(1))
@@ -262,18 +355,6 @@ class MainActivity : Activity() {
             }
         }
         root.addView(weeklyPanel)
-
-        renderMonthlyCalendar()
-
-        val footer = label("KALOREX SMART · DEMO", 12, Color.GRAY).apply {
-            gravity = Gravity.CENTER
-            setPadding(0, dp(14), 0, 0)
-        }
-        root.addView(footer)
-
-        setContentView(scroll)
-        updateTemperature()
-        updateStatus()
     }
 
     private fun panelBox(): LinearLayout = LinearLayout(this).apply {
@@ -333,13 +414,47 @@ class MainActivity : Activity() {
             powerButton.text = if (boilerOn) "APAGAR BOILER" else "ENCENDER BOILER"
             powerButton.setBackgroundTintList(
                 android.content.res.ColorStateList.valueOf(
-                    if (boilerOn) Color.rgb(190, 45, 55) else green
+                    if (boilerOn) green else Color.rgb(190, 45, 55)
                 )
             )
             wifiText.text = if (wifiConnected) "● WiFi conectado" else "● WiFi desconectado"
             wifiText.setTextColor(if (wifiConnected) green else Color.rgb(255, 90, 90))
             onlineText.text = if (wifiConnected) "Modo demostración · Control local" else "Sin conexión · Modo local"
         }
+    }
+
+    private fun applyScheduleForCurrentTime() {
+        if (manualOverride) return
+
+        val now = Calendar.getInstance()
+        val dayIndex = when (now.get(Calendar.DAY_OF_WEEK)) {
+            Calendar.MONDAY -> 0
+            Calendar.TUESDAY -> 1
+            Calendar.WEDNESDAY -> 2
+            Calendar.THURSDAY -> 3
+            Calendar.FRIDAY -> 4
+            Calendar.SATURDAY -> 5
+            else -> 6
+        }
+        val plan = weeklyPlans[dayIndex]
+        if (!plan.enabled) return
+
+        val nowMinutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+        val startParts = plan.startTime.split(":")
+        val endParts = plan.endTime.split(":")
+        val startMinutes = startParts[0].toInt() * 60 + startParts[1].toInt()
+        val endMinutes = endParts[0].toInt() * 60 + endParts[1].toInt()
+
+        val active = if (endMinutes >= startMinutes) {
+            nowMinutes >= startMinutes && nowMinutes < endMinutes
+        } else {
+            nowMinutes >= startMinutes || nowMinutes < endMinutes
+        }
+
+        boilerOn = active
+        if (active) setTemp = plan.temperature
+        updateStatus()
+        updateTemperature()
     }
 
     private fun planText(plan: WeeklyPlan): String =
@@ -629,6 +744,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         timer?.cancel()
+        scheduleHandler.removeCallbacks(scheduleCheck)
         super.onDestroy()
     }
 
