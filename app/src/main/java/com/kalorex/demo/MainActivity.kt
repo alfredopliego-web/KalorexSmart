@@ -622,7 +622,16 @@ class WeeklyScheduleReceiver : android.content.BroadcastReceiver() {
         if (intent?.action == Intent.ACTION_BOOT_COMPLETED) { scheduleAll(context); return }
         val start = intent?.getBooleanExtra("isStart", true) ?: true
         val target = intent?.getIntExtra("targetTemp", 40) ?: 40
-        prefs.edit().putBoolean("boilerOn", start).putInt("scheduledTarget", if (start) target else prefs.getInt("setTemp", 32)).apply()
+
+        // Actualiza el estado y la temperatura objetivo que la app recupera al abrirse.
+        val editor = prefs.edit().putBoolean("boilerOn", start)
+        if (start) {
+            editor.putInt("setTemp", target)
+            editor.putInt("scheduledTarget", target)
+        }
+        editor.apply()
+
+        // Programa la siguiente ocurrencia semanal de los eventos.
         scheduleAll(context)
     }
 
@@ -658,8 +667,18 @@ class WeeklyScheduleReceiver : android.content.BroadcastReceiver() {
                 putExtra("targetTemp", prefs.getInt("temp$day", 40))
             }
             val pi = PendingIntent.getBroadcast(context, id, intent, PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
-            else alarm.setExact(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarm.canScheduleExactAlarms()) {
+                    // Si el usuario no autorizó alarmas exactas, se usa una alarma flexible.
+                    alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+                } else {
+                    alarm.setExact(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+                }
+            } catch (_: SecurityException) {
+                alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+            }
         }
     }
 }
