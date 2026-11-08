@@ -77,8 +77,8 @@ class MainActivity : Activity() {
         val titleBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
         titleBox.addView(label("🔥 KALOREX SMART", 23, white, true))
         titleBox.addView(label(page, 14, Color.LTGRAY))
-        titleBox.getChildAt(0).setTextColor(Color.WHITE)
-        titleBox.getChildAt(1).setTextColor(Color.WHITE)
+        (titleBox.getChildAt(0) as TextView).setTextColor(Color.WHITE)
+        (titleBox.getChildAt(1) as TextView).setTextColor(Color.WHITE)
         header.addView(titleBox, LinearLayout.LayoutParams(0, dp(60), 1f))
         header.addView(textButton("⚙", 25).apply { setOnClickListener { showSettings() } }, LinearLayout.LayoutParams(dp(48), dp(54)))
         root.addView(header)
