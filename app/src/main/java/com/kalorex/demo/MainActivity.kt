@@ -158,8 +158,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
         }
-        titleBox.addView(label("🔥 KALOREX", 25, white, true))
-        titleBox.addView(label("Control Inteligente de Boiler", 12, Color.LTGRAY))
+        titleBox.addView(label("🔥 KALOREX", 30, white, true))
         header.addView(titleBox, LinearLayout.LayoutParams(0, dp(54), 1f))
         header.addView(textButton("⚙", 24).apply {
             setOnClickListener { showSettings() }
@@ -270,7 +269,7 @@ class MainActivity : Activity() {
             setTemp = value.coerceIn(10, 50)
             updateTemperature()
         }
-        gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(155)))
+        gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(190)))
         gaugePanel.addView(label("Objetivo programado: ${targetTemperature} °C", 15, blue, true).apply {
             gravity = Gravity.CENTER
         })
@@ -401,18 +400,42 @@ class MainActivity : Activity() {
 
     private fun nextScheduleDescription(): String {
         val now = Calendar.getInstance()
-        val dayIndex = when (now.get(Calendar.DAY_OF_WEEK)) {
-            Calendar.MONDAY -> 0
-            Calendar.TUESDAY -> 1
-            Calendar.WEDNESDAY -> 2
-            Calendar.THURSDAY -> 3
-            Calendar.FRIDAY -> 4
-            Calendar.SATURDAY -> 5
-            else -> 6
+        var nearest: Calendar? = null
+        var nearestPlan: WeeklyPlan? = null
+        for (offset in 0..7) {
+            val candidate = (now.clone() as Calendar).apply {
+                add(Calendar.DAY_OF_YEAR, offset)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val index = when (candidate.get(Calendar.DAY_OF_WEEK)) {
+                Calendar.MONDAY -> 0
+                Calendar.TUESDAY -> 1
+                Calendar.WEDNESDAY -> 2
+                Calendar.THURSDAY -> 3
+                Calendar.FRIDAY -> 4
+                Calendar.SATURDAY -> 5
+                else -> 6
+            }
+            val plan = weeklyPlans[index]
+            if (!plan.enabled) continue
+            val time = plan.startTime.split(":")
+            candidate.set(Calendar.HOUR_OF_DAY, time[0].toInt())
+            candidate.set(Calendar.MINUTE, time[1].toInt())
+            if (candidate.after(now) && (nearest == null || candidate.before(nearest))) {
+                nearest = candidate
+                nearestPlan = plan
+            }
         }
-        val plan = weeklyPlans[dayIndex]
-        return if (plan.enabled) "Encendido ${plan.startTime} · ${plan.temperature} °C"
-        else "Sin evento configurado hoy"
+        val event = nearest ?: return "Sin próximos eventos programados"
+        val date = "%02d/%02d/%04d".format(
+            event.get(Calendar.DAY_OF_MONTH), event.get(Calendar.MONTH) + 1,
+            event.get(Calendar.YEAR)
+        )
+        val plan = nearestPlan!!
+        return "Próximo evento: $date · ${plan.startTime} · ${plan.temperature} °C"
     }
 
     private fun buildCalendarPage(root: LinearLayout) {
@@ -946,7 +969,7 @@ class MainActivity : Activity() {
             super.onDraw(canvas)
             val centerX = width / 2f
             val centerY = height / 2f + dp(12)
-            val radius = min(width, height) * 0.36f
+            val radius = min(width, height) * 0.40f
             bounds.set(centerX - radius, centerY - radius, centerX + radius, centerY + radius)
 
             arcPaint.color = Color.rgb(35, 55, 75)
@@ -960,12 +983,10 @@ class MainActivity : Activity() {
             }
             canvas.drawArc(bounds, 135f, sweep, false, arcPaint)
 
-            textPaint.textSize = dp(54).toFloat()
+            textPaint.textSize = dp(60).toFloat()
             canvas.drawText("$temperature°", centerX, centerY + dp(8), textPaint)
-            textPaint.textSize = dp(18).toFloat()
-            canvas.drawText("TEMPERATURA", centerX, centerY + dp(38), textPaint)
-            smallPaint.textSize = dp(13).toFloat()
-            canvas.drawText("°C", centerX, centerY + dp(60), smallPaint)
+            smallPaint.textSize = dp(15).toFloat()
+            canvas.drawText("°C", centerX, centerY + dp(38), smallPaint)
 
             val markerAngle = Math.toRadians((135f + sweep).toDouble())
             val markerX = centerX + radius * cos(markerAngle).toFloat()
