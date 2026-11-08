@@ -37,6 +37,7 @@ class MainActivity : Activity() {
     private var timerRunning = false
     private var boilerOn = true
     private var manualOverride = false
+    private var lastScheduledActive: Boolean? = null
     private var servoOpen = 99
     private var wifiConnected = true
     private var displayedMonth = Calendar.getInstance().apply { set(Calendar.DAY_OF_MONTH, 1) }
@@ -125,7 +126,7 @@ class MainActivity : Activity() {
         val nav = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(5), dp(5), dp(5), dp(8))
+            setPadding(dp(5), dp(3), dp(5), dp(3))
             setBackgroundColor(panel)
         }
         navHome = navItem("⌂", "Inicio") { showPage("home") }
@@ -213,6 +214,11 @@ class MainActivity : Activity() {
             boilerOn = !boilerOn
             manualOverride = true
             updateStatus()
+            Toast.makeText(
+                this,
+                if (boilerOn) "Encendido manual" else "Apagado manual",
+                Toast.LENGTH_SHORT
+            ).show()
         }
         powerRow.addView(powerButton, LinearLayout.LayoutParams(0, dp(50), 1f))
         powerRow.addView(space(dp(8)))
@@ -424,8 +430,6 @@ class MainActivity : Activity() {
     }
 
     private fun applyScheduleForCurrentTime() {
-        if (manualOverride) return
-
         val now = Calendar.getInstance()
         val dayIndex = when (now.get(Calendar.DAY_OF_WEEK)) {
             Calendar.MONDAY -> 0
@@ -437,7 +441,6 @@ class MainActivity : Activity() {
             else -> 6
         }
         val plan = weeklyPlans[dayIndex]
-        if (!plan.enabled) return
 
         val nowMinutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
         val startParts = plan.startTime.split(":")
@@ -445,14 +448,23 @@ class MainActivity : Activity() {
         val startMinutes = startParts[0].toInt() * 60 + startParts[1].toInt()
         val endMinutes = endParts[0].toInt() * 60 + endParts[1].toInt()
 
-        val active = if (endMinutes >= startMinutes) {
+        val scheduledActive = plan.enabled && if (endMinutes >= startMinutes) {
             nowMinutes >= startMinutes && nowMinutes < endMinutes
         } else {
             nowMinutes >= startMinutes || nowMinutes < endMinutes
         }
 
-        boilerOn = active
-        if (active) setTemp = plan.temperature
+        // A manual selection remains in effect until the schedule changes state
+        // (for example, its programmed start or stop time is reached).
+        if (lastScheduledActive != null && scheduledActive != lastScheduledActive) {
+            manualOverride = false
+        }
+        lastScheduledActive = scheduledActive
+
+        if (manualOverride) return
+
+        boilerOn = scheduledActive
+        if (scheduledActive) setTemp = plan.temperature
         updateStatus()
         updateTemperature()
     }
