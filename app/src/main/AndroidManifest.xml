@@ -1,12 +1,13 @@
 
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.kalorex.demo">
 
-    <!-- Permite recibir el aviso cuando el dispositivo se reinicia -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission
+        android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Permite programar alarmas exactas en Android compatible -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <application
         android:allowBackup="false"
@@ -14,7 +15,6 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
-        <!-- Pantalla principal de la aplicación -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -26,7 +26,6 @@
 
         </activity>
 
-        <!-- Receptor de programación semanal -->
         <receiver
             android:name=".WeeklyScheduleReceiver"
             android:enabled="true"
