@@ -1,17 +1,43 @@
+
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Permite recibir el aviso cuando el dispositivo se reinicia -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Permite programar alarmas exactas en Android compatible -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
     <application
         android:allowBackup="false"
-        android:label="Kalorex Smart Demo"
-        android:theme="@android:style/Theme.Material.NoActionBar"
-        android:usesCleartextTraffic="true">
+        android:label="KalorexSmart"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <!-- Pantalla principal de la aplicación -->
         <activity
             android:name=".MainActivity"
-            android:screenOrientation="portrait"
             android:exported="true">
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
         </activity>
+
+        <!-- Receptor de programación semanal -->
+        <receiver
+            android:name=".WeeklyScheduleReceiver"
+            android:enabled="true"
+            android:exported="false">
+
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+
+        </receiver>
+
     </application>
+
 </manifest>
