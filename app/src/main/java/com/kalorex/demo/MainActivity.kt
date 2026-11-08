@@ -66,7 +66,7 @@ class MainActivity : Activity() {
 
     private fun showPage(page: String) {
         currentPage = page
-        val scroll = ScrollView(this).apply { setBackgroundColor(bg); fillViewport = true }
+        val scroll = ScrollView(this).apply { setBackgroundColor(bg); isFillViewport = true }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(10), dp(16), dp(18))
@@ -577,5 +577,6 @@ class MainActivity : Activity() {
         }
     }
 }
+
 
 
