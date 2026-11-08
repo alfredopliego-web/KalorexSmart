@@ -627,12 +627,13 @@ class MainActivity : Activity() {
         boilerOn = scheduledActive
         if (scheduledActive) {
             stopGradualCooling()
-            if (!wasOn) {
-                beginGradualHeating(plan.temperature)
-            } else if (setTemp < plan.temperature) {
-                beginGradualHeating(plan.temperature)
+            // Always refresh the target and ensure the gradual-heating task is running.
+            // This also handles the case where the boiler was already ON when the schedule starts.
+            targetTemperature = plan.temperature.coerceIn(10, 50)
+            if (!wasOn || setTemp < targetTemperature) {
+                beginGradualHeating(targetTemperature)
             } else {
-                targetTemperature = plan.temperature
+                stopGradualHeating()
             }
         } else if (wasOn) {
             stopGradualHeating()
