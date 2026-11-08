@@ -1,4 +1,4 @@
-package com.kalorex.demo
+          package com.kalorex.demo
 
 import android.app.Activity
 import android.app.AlertDialog
@@ -8,6 +8,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Path
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -17,6 +18,9 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
+import java.util.Calendar
+import java.util.Locale
+import android.app.TimePickerDialog
 
 class MainActivity : Activity() {
 
@@ -34,6 +38,17 @@ class MainActivity : Activity() {
     private var boilerOn = true
     private var servoOpen = 99
     private var wifiConnected = true
+    private var displayedMonth = Calendar.getInstance().apply { set(Calendar.DAY_OF_MONTH, 1) }
+    private val weeklyPlans = Array(7) { WeeklyPlan("06:00", "07:00", 38, true) }
+    private var monthlyCalendarGrid: GridLayout? = null
+    private var monthlyTitle: TextView? = null
+
+    private data class WeeklyPlan(
+        var startTime: String,
+        var endTime: String,
+        var temperature: Int,
+        var enabled: Boolean
+    )
 
     private lateinit var boilerStatus: TextView
     private lateinit var servoStatus: TextView
@@ -188,6 +203,68 @@ class MainActivity : Activity() {
         timerPanel.addView(timerButtons)
         root.addView(timerPanel)
 
+        val calendarPanel = panelBox()
+        calendarPanel.addView(sectionTitle("CALENDARIO MENSUAL"))
+        val monthHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val prevMonth = textButton("‹", 30).apply {
+            setOnClickListener {
+                displayedMonth.add(Calendar.MONTH, -1)
+                renderMonthlyCalendar()
+            }
+        }
+        monthHeader.addView(prevMonth, LinearLayout.LayoutParams(dp(42), dp(44)))
+        monthlyTitle = label("", 17, white, true).apply { gravity = Gravity.CENTER }
+        monthHeader.addView(monthlyTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
+        val nextMonth = textButton("›", 30).apply {
+            setOnClickListener {
+                displayedMonth.add(Calendar.MONTH, 1)
+                renderMonthlyCalendar()
+            }
+        }
+        monthHeader.addView(nextMonth, LinearLayout.LayoutParams(dp(42), dp(44)))
+        calendarPanel.addView(monthHeader)
+        monthlyCalendarGrid = GridLayout(this).apply {
+            columnCount = 7
+            useDefaultMargins = false
+        }
+        calendarPanel.addView(monthlyCalendarGrid)
+        calendarPanel.addView(label("Toca un día para ver o agregar una programación.", 12, Color.LTGRAY))
+        root.addView(calendarPanel)
+
+        val weeklyPanel = panelBox()
+        weeklyPanel.addView(sectionTitle("PROGRAMACIÓN SEMANAL"))
+        weeklyPanel.addView(label("Configura horario y temperatura para cada día.", 13, Color.LTGRAY))
+        val dayNames = arrayOf("Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo")
+        for (index in dayNames.indices) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(5), 0, dp(5))
+            }
+            val plan = weeklyPlans[index]
+            val dayLabel = label(dayNames[index], 14, white, true)
+            row.addView(dayLabel, LinearLayout.LayoutParams(dp(78), -2))
+            val detail = label(planText(plan), 12, Color.LTGRAY)
+            row.addView(detail, LinearLayout.LayoutParams(0, -2, 1f))
+            val edit = actionButton("EDITAR", blue).apply {
+                setOnClickListener { editWeeklyPlan(index, dayNames[index], detail) }
+            }
+            row.addView(edit, LinearLayout.LayoutParams(dp(82), dp(42)))
+            weeklyPanel.addView(row)
+            if (index < dayNames.lastIndex) {
+                weeklyPanel.addView(View(this).apply {
+                    setBackgroundColor(Color.rgb(30, 52, 73))
+                    layoutParams = LinearLayout.LayoutParams(-1, dp(1))
+                })
+            }
+        }
+        root.addView(weeklyPanel)
+
+        renderMonthlyCalendar()
+
         val footer = label("KALOREX SMART · DEMO", 12, Color.GRAY).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(14), 0, 0)
@@ -263,6 +340,141 @@ class MainActivity : Activity() {
             wifiText.setTextColor(if (wifiConnected) green else Color.rgb(255, 90, 90))
             onlineText.text = if (wifiConnected) "Modo demostración · Control local" else "Sin conexión · Modo local"
         }
+    }
+
+    private fun planText(plan: WeeklyPlan): String =
+        if (plan.enabled) "${plan.startTime}–${plan.endTime} · ${plan.temperature} °C"
+        else "Desactivado"
+
+    private fun renderMonthlyCalendar() {
+        val grid = monthlyCalendarGrid ?: return
+        val title = monthlyTitle ?: return
+        val monthName = arrayOf(
+            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+        )
+        title.text = "${monthName[displayedMonth.get(Calendar.MONTH)]} ${displayedMonth.get(Calendar.YEAR)}"
+        grid.removeAllViews()
+        val weekdays = arrayOf("L", "M", "M", "J", "V", "S", "D")
+        weekdays.forEach { day ->
+            val cell = label(day, 12, Color.rgb(130, 185, 225), true).apply {
+                gravity = Gravity.CENTER
+            }
+            grid.addView(cell, GridLayout.LayoutParams().apply {
+                width = 0
+                height = dp(34)
+                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+            })
+        }
+        val calendar = displayedMonth.clone() as Calendar
+        val offset = (calendar.get(Calendar.DAY_OF_WEEK) + 5) % 7
+        val daysInMonth = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+        repeat(offset) {
+            grid.addView(View(this), GridLayout.LayoutParams().apply {
+                width = 0
+                height = dp(42)
+                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+            })
+        }
+        val today = Calendar.getInstance()
+        for (day in 1..daysInMonth) {
+            val isToday = today.get(Calendar.YEAR) == calendar.get(Calendar.YEAR) &&
+                today.get(Calendar.MONTH) == calendar.get(Calendar.MONTH) &&
+                today.get(Calendar.DAY_OF_MONTH) == day
+            val button = TextView(this).apply {
+                text = day.toString()
+                gravity = Gravity.CENTER
+                textSize = 14f
+                setTextColor(if (isToday) white else Color.LTGRAY)
+                setBackgroundColor(if (isToday) blue else Color.TRANSPARENT)
+                setOnClickListener {
+                    val picked = displayedMonth.clone() as Calendar
+                    picked.set(Calendar.DAY_OF_MONTH, day)
+                    showMonthlyDayDialog(picked)
+                }
+            }
+            grid.addView(button, GridLayout.LayoutParams().apply {
+                width = 0
+                height = dp(42)
+                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                setMargins(dp(2), dp(2), dp(2), dp(2))
+            })
+        }
+    }
+
+    private fun showMonthlyDayDialog(date: Calendar) {
+        val dateText = "%02d/%02d/%04d".format(
+            date.get(Calendar.DAY_OF_MONTH),
+            date.get(Calendar.MONTH) + 1,
+            date.get(Calendar.YEAR)
+        )
+        AlertDialog.Builder(this)
+            .setTitle("Programación del $dateText")
+            .setMessage("Puedes crear una programación para este día desde la sección semanal. La vista mensual sirve para consultar y seleccionar fechas.")
+            .setPositiveButton("Aceptar", null)
+            .show()
+    }
+
+    private fun editWeeklyPlan(index: Int, dayName: String, detail: TextView) {
+        val plan = weeklyPlans[index]
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(4))
+        }
+        val enabled = Switch(this).apply {
+            text = "Programación activa"
+            setTextColor(white)
+            isChecked = plan.enabled
+        }
+        val temperatureText = label("Temperatura: ${plan.temperature} °C", 16, white, true).apply {
+            gravity = Gravity.CENTER
+        }
+        val temperature = SeekBar(this).apply {
+            max = 40
+            progress = plan.temperature - 10
+        }
+        val startButton = actionButton("Encendido: ${plan.startTime}", blue)
+        val endButton = actionButton("Apagado: ${plan.endTime}", blue)
+        var start = plan.startTime
+        var end = plan.endTime
+        startButton.setOnClickListener {
+            val parts = start.split(":")
+            TimePickerDialog(this, { _, hour, minute ->
+                start = "%02d:%02d".format(hour, minute)
+                startButton.text = "Encendido: $start"
+            }, parts[0].toInt(), parts[1].toInt(), true).show()
+        }
+        endButton.setOnClickListener {
+            val parts = end.split(":")
+            TimePickerDialog(this, { _, hour, minute ->
+                end = "%02d:%02d".format(hour, minute)
+                endButton.text = "Apagado: $end"
+            }, parts[0].toInt(), parts[1].toInt(), true).show()
+        }
+        temperature.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                temperatureText.text = "Temperatura: ${progress + 10} °C"
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        content.addView(enabled)
+        content.addView(startButton)
+        content.addView(endButton)
+        content.addView(temperatureText)
+        content.addView(temperature)
+        AlertDialog.Builder(this)
+            .setTitle("Editar $dayName")
+            .setView(content)
+            .setPositiveButton("Guardar") { _, _ ->
+                plan.enabled = enabled.isChecked
+                plan.startTime = start
+                plan.endTime = end
+                plan.temperature = temperature.progress + 10
+                detail.text = planText(plan)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
     private fun showMenu() {
@@ -483,6 +695,49 @@ class MainActivity : Activity() {
                 style = Paint.Style.FILL
             }
             canvas.drawCircle(markerX, markerY, dp(7).toFloat(), markerPaint)
+
+            if (temperature >= 50) {
+                // Llama visual de temperatura máxima (indicador de demostración).
+                val flameCenterX = centerX
+                val flameBottom = centerY - radius + dp(28)
+                val flameHeight = dp(43).toFloat()
+                val flameWidth = dp(31).toFloat()
+                val outerFlame = Path().apply {
+                    moveTo(flameCenterX, flameBottom)
+                    cubicTo(
+                        flameCenterX - flameWidth, flameBottom - flameHeight * 0.35f,
+                        flameCenterX - flameWidth * 0.45f, flameBottom - flameHeight * 0.82f,
+                        flameCenterX, flameBottom - flameHeight
+                    )
+                    cubicTo(
+                        flameCenterX + flameWidth * 0.05f, flameBottom - flameHeight * 0.65f,
+                        flameCenterX + flameWidth, flameBottom - flameHeight * 0.55f,
+                        flameCenterX, flameBottom
+                    )
+                    close()
+                }
+                val flamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.rgb(255, 95, 25)
+                    style = Paint.Style.FILL
+                }
+                canvas.drawPath(outerFlame, flamePaint)
+                val innerFlame = Path().apply {
+                    moveTo(flameCenterX, flameBottom - dp(5))
+                    cubicTo(
+                        flameCenterX - dp(10), flameBottom - dp(14),
+                        flameCenterX - dp(5), flameBottom - dp(25),
+                        flameCenterX, flameBottom - dp(31)
+                    )
+                    cubicTo(
+                        flameCenterX + dp(3), flameBottom - dp(20),
+                        flameCenterX + dp(11), flameBottom - dp(14),
+                        flameCenterX, flameBottom - dp(5)
+                    )
+                    close()
+                }
+                flamePaint.color = Color.rgb(255, 220, 60)
+                canvas.drawPath(innerFlame, flamePaint)
+            }
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -526,4 +781,3 @@ class MainActivity : Activity() {
         }
     }
 }
-
