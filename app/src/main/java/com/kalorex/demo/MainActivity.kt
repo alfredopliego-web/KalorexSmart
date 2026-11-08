@@ -105,6 +105,7 @@ class MainActivity : Activity() {
     private lateinit var wifiText: TextView
     private lateinit var onlineText: TextView
     private lateinit var powerButton: Button
+    private lateinit var homeBoilerStatus: TextView
     private lateinit var pauseButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -209,7 +210,7 @@ class MainActivity : Activity() {
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(4), dp(14), dp(14))
+            setPadding(dp(8), dp(0), dp(8), dp(5))
         }
         when (page) {
             "calendar" -> buildCalendarPage(content)
@@ -242,9 +243,9 @@ class MainActivity : Activity() {
         wifiCard.addView(label("⌁", 25, green, true))
         wifiCard.addView(label(if (wifiConnected) "En línea" else "Sin conexión", 12,
             if (wifiConnected) green else Color.RED, true))
-        clockWifi.addView(clockCard, LinearLayout.LayoutParams(0, dp(68), 1.5f))
+        clockWifi.addView(clockCard, LinearLayout.LayoutParams(0, dp(52), 1.5f))
         clockWifi.addView(space(dp(8)))
-        clockWifi.addView(wifiCard, LinearLayout.LayoutParams(0, dp(68), 1f))
+        clockWifi.addView(wifiCard, LinearLayout.LayoutParams(0, dp(52), 1f))
         root.addView(clockWifi)
 
         val clockHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -252,11 +253,11 @@ class MainActivity : Activity() {
             override fun run() {
                 if (currentPage != "home") return
                 val now = Calendar.getInstance()
-                clockText.text = "%02d:%02d\n%s".format(
-                    now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE),
+                clockText.text = "%02d:%02d:%02d\n%s".format(
+                    now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), now.get(Calendar.SECOND),
                     arrayOf("Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb")[now.get(Calendar.DAY_OF_WEEK)-1]
                 )
-                clockHandler.postDelayed(this, 30_000L)
+                clockHandler.postDelayed(this, 1_000L)
             }
         }
         clockUpdate.run()
@@ -269,7 +270,7 @@ class MainActivity : Activity() {
             setTemp = value.coerceIn(10, 50)
             updateTemperature()
         }
-        gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(230)))
+        gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(155)))
         gaugePanel.addView(label("Objetivo programado: ${targetTemperature} °C", 15, blue, true).apply {
             gravity = Gravity.CENTER
         })
@@ -317,9 +318,10 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        boilerInfo.addView(label("♨  Boiler", 18, white, true))
-        boilerInfo.addView(label(if (boilerOn) "ENCENDIDO" else "APAGADO", 15,
-            if (boilerOn) green else Color.RED, true))
+        boilerInfo.addView(label("♨  Boiler", 15, white, true))
+        homeBoilerStatus = label(if (boilerOn) "ENCENDIDO" else "APAGADO", 14,
+            if (boilerOn) green else Color.RED, true)
+        boilerInfo.addView(homeBoilerStatus)
         powerRow.addView(boilerInfo, LinearLayout.LayoutParams(0, -2, 1f))
         powerButton = actionButton(if (boilerOn) "⏻  APAGAR" else "⏻  ENCENDER",
             if (boilerOn) Color.rgb(30, 155, 75) else Color.rgb(190, 45, 55))
@@ -336,7 +338,7 @@ class MainActivity : Activity() {
             updateStatus()
             showPage("home")
         }
-        powerRow.addView(powerButton, LinearLayout.LayoutParams(dp(140), dp(52)))
+        powerRow.addView(powerButton, LinearLayout.LayoutParams(dp(128), dp(44)))
         powerPanel.addView(powerRow)
         root.addView(powerPanel)
 
@@ -494,16 +496,16 @@ class MainActivity : Activity() {
 
     private fun panelBox(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(16), dp(14), dp(16), dp(14))
+        setPadding(dp(10), dp(7), dp(10), dp(7))
         setBackgroundColor(panel)
         val params = LinearLayout.LayoutParams(-1, -2)
-        params.setMargins(0, dp(10), 0, dp(8))
+        params.setMargins(0, dp(4), 0, dp(3))
         layoutParams = params
     }
 
     private fun sectionTitle(text: String): TextView =
         label(text, 13, Color.rgb(130, 185, 225), true).apply {
-            setPadding(0, 0, 0, dp(8))
+            setPadding(0, 0, 0, dp(3))
         }
 
     private fun label(text: String, size: Int, color: Int, bold: Boolean = false): TextView =
@@ -546,7 +548,11 @@ class MainActivity : Activity() {
         if (::boilerStatus.isInitialized) {
             boilerStatus.text = if (boilerOn) "● Boiler encendido" else "● Boiler apagado"
             boilerStatus.setTextColor(if (boilerOn) green else Color.rgb(255, 90, 90))
-            powerButton.text = if (boilerOn) "APAGAR BOILER" else "ENCENDER BOILER"
+            if (::homeBoilerStatus.isInitialized) {
+                homeBoilerStatus.text = if (boilerOn) "ENCENDIDO" else "APAGADO"
+                homeBoilerStatus.setTextColor(if (boilerOn) green else Color.rgb(255, 90, 90))
+            }
+            powerButton.text = if (boilerOn) "⏻ APAGAR" else "⏻ ENCENDER"
             powerButton.setBackgroundTintList(
                 android.content.res.ColorStateList.valueOf(
                     if (boilerOn) green else Color.rgb(190, 45, 55)
