@@ -153,6 +153,11 @@ class MainActivity : Activity() {
     private val scheduleCheck = object : Runnable {
         override fun run() {
             applyScheduleForCurrentTime()
+            if (::gauge.isInitialized) gauge.invalidate()
+            if (::pageContainer.isInitialized) {
+                val clock = pageContainer.findViewWithTag<TextView>("kalorex_main_clock")
+                clock?.text = "⌚  " + java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(java.util.Date())
+            }
             scheduleHandler.postDelayed(this, 1_000L)
         }
     }
@@ -282,7 +287,7 @@ class MainActivity : Activity() {
         }, {
             toggleBoilerPower()
         })
-        gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(190)))
+        gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(270)))
         gaugePanel.addView(label("Objetivo programado: ${targetTemperature} °C", 15, blue, true).apply {
             gravity = Gravity.CENTER
         })
@@ -320,6 +325,14 @@ class MainActivity : Activity() {
             13, if (automationEnabled) green else Color.LTGRAY
         ))
         root.addView(automationPanel)
+
+        // Reloj principal ubicado debajo de la programación automática.
+        val mainClock = label("⌚  --:--:--", 18, blue, true).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(10), dp(8), dp(10))
+            tag = "kalorex_main_clock"
+        }
+        root.addView(mainClock)
 
         // Estado del boiler: el control de encendido/apagado está integrado en el dial.
         val powerPanel = panelBox()
@@ -1193,7 +1206,7 @@ class MainActivity : Activity() {
 
             // Carcasa metálica y anillo turquesa inspirados en la referencia visual.
             val outerGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.rgb(0, 225, 240)
+                color = temperatureColor
                 style = Paint.Style.STROKE
                 strokeWidth = dp(5).toFloat()
                 setShadowLayer(dp(8).toFloat(), 0f, 0f, Color.rgb(0, 220, 240))
@@ -1222,14 +1235,12 @@ class MainActivity : Activity() {
             canvas.drawArc(bounds, 135f, 270f, false, trackPaint)
             val sweep = ((temperature.coerceIn(10, 50) - 10) / 40f) * 270f
             arcPaint.strokeWidth = dp(8).toFloat()
-            arcPaint.color = if (boilerOn) Color.rgb(0, 145, 255) else when {
-                temperature >= 50 -> Color.rgb(255, 55, 65)
-                temperature >= 35 -> Color.rgb(255, 125, 35)
-                else -> Color.rgb(0, 225, 240)
-            }
+            val temperatureHue = (190f - ((temperature.coerceIn(10, 50) - 10) / 40f) * 190f)
+            val temperatureColor = Color.HSVToColor(floatArrayOf(temperatureHue, 0.88f, 1f))
+            arcPaint.color = temperatureColor
             canvas.drawArc(bounds, 135f, sweep, false, arcPaint)
 
-            // Pantalla digital central, con temperatura y hora.
+            // Pantalla digital central: muestra únicamente la temperatura.
             val display = RectF(cx - radius * 0.69f, cy - radius * 0.52f,
                 cx + radius * 0.69f, cy + radius * 0.12f)
             val displayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1247,15 +1258,11 @@ class MainActivity : Activity() {
             canvas.drawText(temperature.toString(), cx + dp(2), cy - dp(2), valuePaint)
             decimalPaint.textSize = dp(14).toFloat()
             canvas.drawText("°C", cx + dp(31), cy - dp(2), decimalPaint)
-            captionPaint.textSize = dp(10).toFloat()
-            val now = Calendar.getInstance()
-            val clock = "%02d:%02d".format(now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE))
-            canvas.drawText(clock, cx, cy + dp(17), captionPaint)
-
+ 
             // El dial completo funciona como botón de encendido. El anillo azul
             // indica el estado activo; arrastrar sobre el borde ajusta temperatura.
             powerHitBounds.set(cx - radius, cy - radius, cx + radius, cy + radius)
-            val activeColor = if (boilerOn) Color.rgb(0, 145, 255) else Color.rgb(85, 95, 105)
+            val activeColor = if (boilerOn) Color.rgb(0, 145, 255) else temperatureColor
             val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = activeColor
                 style = Paint.Style.STROKE
