@@ -251,10 +251,37 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(8), dp(0), dp(8), dp(5))
         }
+        if (page != "home") {
+            val backBar = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(4), dp(8), dp(4), dp(8))
+            }
+            val backButton = TextView(this).apply {
+                text = "‹  Inicio"
+                textSize = 17f
+                setTextColor(white)
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(8), dp(8), dp(16), dp(8))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { showPage("home") }
+            }
+            backBar.addView(backButton)
+            backBar.addView(label(
+                when (page) {
+                    "schedule" -> "Programación"
+                    "calendar" -> "Calendario"
+                    "servo", "controller" -> "Controlador"
+                    else -> "Ajustes"
+                }, 17, white, true
+            ))
+            content.addView(backBar)
+        }
         when (page) {
             "calendar" -> buildCalendarPage(content)
             "schedule" -> buildSchedulePage(content)
-            "servo" -> buildServoPage(content)
+            "servo", "controller" -> buildServoPage(content)
             else -> buildHomePage(content)
         }
         scroll.addView(content)
@@ -1296,11 +1323,11 @@ class MainActivity : Activity() {
             }
 
             // Anillo de temperatura con lectura visual limpia.
-            trackPaint.strokeWidth = dp(8).toFloat()
+            trackPaint.strokeWidth = dp(12).toFloat()
             trackPaint.color = Color.rgb(44, 49, 53)
             canvas.drawArc(bounds, 135f, 270f, false, trackPaint)
             val sweep = ((temperature.coerceIn(10, 50) - 10) / 40f) * 270f
-            arcPaint.strokeWidth = dp(8).toFloat()
+            arcPaint.strokeWidth = dp(12).toFloat()
             arcPaint.color = temperatureColor
             canvas.drawArc(bounds, 135f, sweep, false, arcPaint)
 
@@ -1314,8 +1341,13 @@ class MainActivity : Activity() {
             canvas.drawRoundRect(display, dp(8).toFloat(), dp(8).toFloat(), displayPaint)
             // Flama animada dentro del dial: azul como piloto apagado y fuego al encender.
             val heatProgress = ((temperature - 10f) / 40f).coerceIn(0f, 1f)
-            val flameScale = (0.78f + heatProgress * 0.48f) *
-                (1f + kotlin.math.sin(flamePhase.toDouble()).toFloat() * 0.06f)
+            val flameScale = if (boilerOn) {
+                (1.55f + heatProgress * 0.85f) *
+                    (1f + kotlin.math.sin(flamePhase.toDouble()).toFloat() * 0.10f)
+            } else {
+                // Piloto azul: conserva tamaño, pero mantiene movimiento ondulante.
+                0.62f * (1f + kotlin.math.sin(flamePhase.toDouble()).toFloat() * 0.025f)
+            }
             val flameCenterX = cx - dp(42)
             val flameBaseY = cy - dp(5)
             val flameHeight = dp(28).toFloat() * flameScale
@@ -1376,11 +1408,11 @@ class MainActivity : Activity() {
             }
             canvas.drawCircle(cx, cy, radius - dp(5), glowPaint)
             powerSymbolPaint.color = if (boilerOn) Color.rgb(115, 205, 255) else Color.rgb(255, 125, 130)
-            powerSymbolPaint.strokeWidth = dp(2.5f.toInt()).toFloat()
-            val symbolRadius = dp(8).toFloat()
+            powerSymbolPaint.strokeWidth = dp(3.5f.toInt()).toFloat()
+            val symbolRadius = dp(12).toFloat()
             val symbolX = cx
             val symbolY = cy + radius * 0.48f
-            val powerTouchRadius = dp(22).toFloat()
+            val powerTouchRadius = dp(30).toFloat()
             powerHitBounds.set(
                 symbolX - powerTouchRadius,
                 symbolY - powerTouchRadius,
@@ -1389,8 +1421,8 @@ class MainActivity : Activity() {
             )
             canvas.drawArc(RectF(symbolX - symbolRadius, symbolY - symbolRadius,
                 symbolX + symbolRadius, symbolY + symbolRadius), 135f, 270f, false, powerSymbolPaint)
-            canvas.drawLine(symbolX, symbolY - dp(12).toFloat(), symbolX, symbolY + dp(1).toFloat(), powerSymbolPaint)
-            powerLabelPaint.textSize = dp(8).toFloat()
+            canvas.drawLine(symbolX, symbolY - dp(16).toFloat(), symbolX, symbolY + dp(2).toFloat(), powerSymbolPaint)
+            powerLabelPaint.textSize = dp(9).toFloat()
             canvas.drawText(if (boilerOn) "ENCENDIDO" else "APAGADO", cx, symbolY + dp(25), powerLabelPaint)
         }
 
