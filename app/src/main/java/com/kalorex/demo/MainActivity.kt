@@ -129,13 +129,10 @@ class MainActivity : Activity() {
         var enabled: Boolean
     )
 
-    private lateinit var boilerStatus: TextView
     private lateinit var servoStatus: TextView
     private lateinit var timerText: TextView
     private lateinit var timerSwitch: Switch
     private lateinit var gauge: TemperatureGauge
-    private lateinit var wifiText: TextView
-    private lateinit var onlineText: TextView
     private lateinit var powerButton: Button
     private lateinit var homeBoilerStatus: TextView
     private lateinit var pauseButton: Button
@@ -150,7 +147,6 @@ class MainActivity : Activity() {
 
     private lateinit var pageContainer: FrameLayout
     private lateinit var navHome: TextView
-    private lateinit var navCalendar: TextView
     private lateinit var navSchedule: TextView
     private lateinit var navSettings: TextView
     private var currentPage = "home"
@@ -207,10 +203,9 @@ class MainActivity : Activity() {
             setBackgroundColor(panel)
         }
         navHome = navItem("⌂", "Inicio") { showPage("home") }
-        navCalendar = navItem("📅", "Calendario") { showPage("calendar") }
         navSchedule = navItem("⏰", "Programación") { showPage("schedule") }
         navSettings = navItem("⚙", "Ajustes") { showSettings() }
-        listOf(navHome, navCalendar, navSchedule, navSettings).forEach {
+        listOf(navHome, navSchedule, navSettings).forEach {
             nav.addView(it, LinearLayout.LayoutParams(0, dp(52), 1f))
         }
         main.addView(nav)
@@ -256,7 +251,6 @@ class MainActivity : Activity() {
         pageContainer.addView(scroll)
         val activeColor = blue
         navHome.setTextColor(if (page == "home") activeColor else Color.LTGRAY)
-        navCalendar.setTextColor(if (page == "calendar") activeColor else Color.LTGRAY)
         navSchedule.setTextColor(if (page == "schedule") activeColor else Color.LTGRAY)
         navSettings.setTextColor(Color.LTGRAY)
     }
@@ -284,7 +278,7 @@ class MainActivity : Activity() {
         root.addView(clockWifi)
 
         // Flama animada: se muestra únicamente cuando el boiler está encendido.
-        flameView = FlameView(this).apply { visibility = if (boilerOn) View.VISIBLE else View.GONE }
+        flameView = FlameView(this).apply { visibility = View.VISIBLE }
         root.addView(flameView, LinearLayout.LayoutParams(-1, dp(105)))
 
         val clockHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -292,7 +286,7 @@ class MainActivity : Activity() {
             override fun run() {
                 if (currentPage != "home") return
                 val now = Calendar.getInstance()
-                clockText.text = "%02d:%02d:%02d\n%s".format(
+                clockText.text = "%02d:%02d:%02d  %s".format(
                     now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), now.get(Calendar.SECOND),
                     arrayOf("Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb")[now.get(Calendar.DAY_OF_WEEK)-1]
                 )
@@ -390,23 +384,7 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(-1, dp(44)))
         root.addView(servoShortcut)
 
-        // Estado del sistema al pie del dashboard.
-        val statusPanel = panelBox()
-        statusPanel.addView(sectionTitle("ESTADO DEL SISTEMA"))
-        boilerStatus = label(if (boilerOn) "● Boiler encendido" else "● Boiler apagado", 15,
-            if (boilerOn) green else Color.RED, true)
-        statusPanel.addView(boilerStatus)
-        wifiText = label(if (wifiConnected) "● WiFi conectado" else "● WiFi desconectado", 14,
-            if (wifiConnected) green else Color.RED)
-        statusPanel.addView(wifiText)
-        onlineText = label(
-            if (boilerOn && setTemp < targetTemperature) "Calentando · Incremento gradual"
-            else if (!boilerOn) "Enfriamiento gradual"
-            else "Temperatura estable",
-            13, Color.LTGRAY
-        )
-        statusPanel.addView(onlineText)
-        root.addView(statusPanel)
+        // El estado del sistema se consulta desde Ajustes.
     }
 
     private fun buildServoPage(root: LinearLayout) {
@@ -526,6 +504,9 @@ class MainActivity : Activity() {
         val weeklyPanel = panelBox()
         weeklyPanel.addView(sectionTitle("PROGRAMACIÓN SEMANAL"))
         weeklyPanel.addView(label("Configura encendido, apagado y temperatura por día.", 13, Color.LTGRAY))
+        weeklyPanel.addView(actionButton("📅  ABRIR CALENDARIO MENSUAL", blue).apply {
+            setOnClickListener { showPage("calendar") }
+        }, LinearLayout.LayoutParams(-1, dp(42)))
         weeklyPanel.addView(actionButton(if (automationEnabled) "⏰ PROGRAMACIÓN CONECTADA" else "⏰ CONECTAR PROGRAMACIÓN", green).apply {
             setOnClickListener {
                 automationEnabled = !automationEnabled
@@ -672,9 +653,25 @@ class MainActivity : Activity() {
         override fun onDetachedFromWindow() { handler.removeCallbacks(animation); super.onDetachedFromWindow() }
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            if (!boilerOn) return
             val cx = width / 2f
             val base = height * 0.88f
+            if (!boilerOn) {
+                // Piloto azul pequeño y animado, siempre visible cuando el boiler está apagado.
+                val pilotPulse = 1f + sin(phase.toDouble() * 1.4).toFloat() * 0.08f
+                val pilotSize = dp(16).toFloat() * pilotPulse
+                val pilotSway = sin(phase.toDouble()).toFloat() * dp(2)
+                val bluePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(35, 145, 255); style = Paint.Style.FILL }
+                val paleBluePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(145, 220, 255); style = Paint.Style.FILL }
+                val pilot = Path().apply {
+                    moveTo(cx - pilotSize * 0.55f, base)
+                    cubicTo(cx - pilotSize * 0.8f, base - pilotSize * 0.7f, cx + pilotSway, base - pilotSize * 0.75f, cx + pilotSway, base - pilotSize * 1.45f)
+                    cubicTo(cx + pilotSize * 0.7f, base - pilotSize * 0.75f, cx + pilotSize * 0.55f, base - pilotSize * 0.45f, cx + pilotSize * 0.55f, base)
+                    close()
+                }
+                canvas.drawPath(pilot, bluePaint)
+                canvas.drawOval(RectF(cx - pilotSize * 0.18f + pilotSway, base - pilotSize * 0.55f, cx + pilotSize * 0.18f + pilotSway, base - pilotSize * 0.08f), paleBluePaint)
+                return
+            }
 
             // La flama crece según la temperatura simulada: pequeña al iniciar,
             // más alta y ancha conforme se acerca a la temperatura objetivo.
@@ -715,31 +712,25 @@ class MainActivity : Activity() {
             gauge.setTemperature(setTemp)
             gauge.setTargetTemperature(targetTemperature)
         }
-        flameView?.visibility = if (boilerOn) View.VISIBLE else View.GONE
+        flameView?.visibility = View.VISIBLE
         flameView?.invalidate()
         savePreferences()
     }
 
     private fun updateStatus() {
-        if (::boilerStatus.isInitialized) {
-            boilerStatus.text = if (boilerOn) "● Boiler encendido" else "● Boiler apagado"
-            boilerStatus.setTextColor(if (boilerOn) green else Color.rgb(255, 90, 90))
-            if (::homeBoilerStatus.isInitialized) {
-                homeBoilerStatus.text = if (boilerOn) "ENCENDIDO" else "APAGADO"
-                homeBoilerStatus.setTextColor(if (boilerOn) green else Color.rgb(255, 90, 90))
-            }
+        if (::homeBoilerStatus.isInitialized) {
+            homeBoilerStatus.text = if (boilerOn) "ENCENDIDO" else "APAGADO"
+            homeBoilerStatus.setTextColor(if (boilerOn) green else Color.rgb(255, 90, 90))
+        }
+        if (::powerButton.isInitialized) {
             powerButton.text = if (boilerOn) "🔥  ⏻ APAGAR" else "⏻ ENCENDER"
             powerButton.setBackgroundTintList(
                 android.content.res.ColorStateList.valueOf(
                     if (boilerOn) green else Color.rgb(190, 45, 55)
                 )
             )
-            wifiText.text = if (wifiConnected) "● WiFi conectado" else "● WiFi desconectado"
-            wifiText.setTextColor(if (wifiConnected) green else Color.rgb(255, 90, 90))
-            onlineText.text = if (boilerOn && setTemp < targetTemperature) "Calentando · Incremento gradual"
-                else if (!boilerOn) "Enfriamiento gradual" else "Temperatura estable"
         }
-        flameView?.visibility = if (boilerOn) View.VISIBLE else View.GONE
+        flameView?.visibility = View.VISIBLE
         flameView?.invalidate()
         savePreferences()
     }
@@ -959,6 +950,7 @@ class MainActivity : Activity() {
             "Temporizador: ${timerDurationMs / 60000} minutos",
             "Estado WiFi: ${if (wifiConnected) "Conectado" else "Desconectado"}",
             "Tema de la aplicación: ${if (themeMode == 0) "Industrial Pro" else "Calorex claro"}",
+            "Estado del sistema",
             "Información de la aplicación"
         )
         AlertDialog.Builder(this)
@@ -972,7 +964,8 @@ class MainActivity : Activity() {
                         updateStatus()
                     }
                     3 -> showThemeSettings()
-                    4 -> AlertDialog.Builder(this)
+                    4 -> showSystemStatusDialog()
+                    5 -> AlertDialog.Builder(this)
                         .setTitle("KalorexSmart")
                         .setMessage("Interfaz de demostración. Para controlar un boiler real se requiere integrar el módulo WiFi y el sistema de control compatible.")
                         .setPositiveButton("Aceptar", null)
@@ -980,6 +973,21 @@ class MainActivity : Activity() {
                 }
             }
             .setNegativeButton("Cerrar", null)
+            .show()
+    }
+
+    private fun showSystemStatusDialog() {
+        val boilerState = if (boilerOn) "Encendido" else "Apagado"
+        val wifiState = if (wifiConnected) "Conectado" else "Desconectado"
+        val operation = when {
+            boilerOn && setTemp < targetTemperature -> "Calentando · Incremento gradual"
+            !boilerOn -> "Enfriamiento gradual"
+            else -> "Temperatura estable"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Estado del sistema")
+            .setMessage("Boiler: $boilerState\nWiFi: $wifiState\nTemperatura: $setTemp °C\nObjetivo: $targetTemperature °C\nEstado: $operation")
+            .setPositiveButton("Aceptar", null)
             .show()
     }
 
