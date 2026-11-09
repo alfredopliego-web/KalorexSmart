@@ -301,6 +301,9 @@ class MainActivity : Activity() {
         automationRow.addView(space(dp(10)))
         val automationText = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showPage("schedule") }
             addView(label("Programación automática", 16, white, true))
             addView(label("Encendido / Apagado por horario", 12, Color.LTGRAY))
         }
@@ -322,7 +325,10 @@ class MainActivity : Activity() {
             }
         }
         automationRow.addView(automationSwitch)
-        automationRow.addView(label("›", 27, white, true))
+        automationRow.addView(label("›", 27, white, true).apply {
+            isClickable = true
+            setOnClickListener { showPage("schedule") }
+        })
         automationPanel.addView(automationRow)
         automationPanel.addView(label(
             if (automationEnabled) "✓ Activa · ${nextScheduleDescription()}"
@@ -345,7 +351,11 @@ class MainActivity : Activity() {
         }
         clockPanel.addView(label("◷", 25, white, true))
         val clockText = label(
-            "%02d:%02d:%02d".format(now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), now.get(Calendar.SECOND)),
+            "%02d:%02d:%02d %s".format(
+                (now.get(Calendar.HOUR) % 12).let { if (it == 0) 12 else it },
+                now.get(Calendar.MINUTE), now.get(Calendar.SECOND),
+                if (now.get(Calendar.AM_PM) == Calendar.AM) "AM" else "PM"
+            ),
             21, white, true
         ).apply {
             gravity = Gravity.CENTER
@@ -805,8 +815,20 @@ class MainActivity : Activity() {
         updateTemperature()
     }
 
+    private fun formatTime12Hour(time24: String): String {
+        val parts = time24.split(":")
+        val hour = parts.getOrNull(0)?.toIntOrNull() ?: 0
+        val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        val suffix = if (hour < 12) "AM" else "PM"
+        val hour12 = when (val h = hour % 12) {
+            0 -> 12
+            else -> h
+        }
+        return "%02d:%02d %s".format(hour12, minute, suffix)
+    }
+
     private fun planText(plan: WeeklyPlan): String =
-        if (plan.enabled) "${plan.startTime}–${plan.endTime} · ${plan.temperature} °C"
+        if (plan.enabled) "${formatTime12Hour(plan.startTime)}–${formatTime12Hour(plan.endTime)} · ${plan.temperature} °C"
         else "Desactivado"
 
     private fun renderMonthlyCalendar() {
@@ -896,23 +918,23 @@ class MainActivity : Activity() {
             max = 40
             progress = plan.temperature - 10
         }
-        val startButton = actionButton("Encendido: ${plan.startTime}", blue)
-        val endButton = actionButton("Apagado: ${plan.endTime}", blue)
+        val startButton = actionButton("Encendido: ${formatTime12Hour(plan.startTime)}", blue)
+        val endButton = actionButton("Apagado: ${formatTime12Hour(plan.endTime)}", blue)
         var start = plan.startTime
         var end = plan.endTime
         startButton.setOnClickListener {
             val parts = start.split(":")
             TimePickerDialog(this, { _, hour, minute ->
                 start = "%02d:%02d".format(hour, minute)
-                startButton.text = "Encendido: $start"
-            }, parts[0].toInt(), parts[1].toInt(), true).show()
+                startButton.text = "Encendido: ${formatTime12Hour(start)}"
+            }, parts[0].toInt(), parts[1].toInt(), false).show()
         }
         endButton.setOnClickListener {
             val parts = end.split(":")
             TimePickerDialog(this, { _, hour, minute ->
                 end = "%02d:%02d".format(hour, minute)
-                endButton.text = "Apagado: $end"
-            }, parts[0].toInt(), parts[1].toInt(), true).show()
+                endButton.text = "Apagado: ${formatTime12Hour(end)}"
+            }, parts[0].toInt(), parts[1].toInt(), false).show()
         }
         temperature.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -1205,6 +1227,26 @@ class MainActivity : Activity() {
         private var touchStartX = 0f
         private var touchStartY = 0f
         private var movedBeyondTap = false
+        private var flamePhase = 0f
+        private val flameHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        private val flameTicker = object : Runnable {
+            override fun run() {
+                flamePhase += 0.16f
+                invalidate()
+                flameHandler.postDelayed(this, 45L)
+            }
+        }
+
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            flameHandler.removeCallbacks(flameTicker)
+            flameHandler.post(flameTicker)
+        }
+
+        override fun onDetachedFromWindow() {
+            flameHandler.removeCallbacks(flameTicker)
+            super.onDetachedFromWindow()
+        }
 
         fun setTemperature(value: Int) {
             temperature = value.coerceIn(10, 50)
@@ -1270,12 +1312,54 @@ class MainActivity : Activity() {
                 style = Paint.Style.FILL
             }
             canvas.drawRoundRect(display, dp(8).toFloat(), dp(8).toFloat(), displayPaint)
-            // Temperatura colocada enseguida del icono de flama.
-            val flameIconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                textAlign = Paint.Align.CENTER
-                textSize = dp(23).toFloat()
+            // Flama animada dentro del dial: azul como piloto apagado y fuego al encender.
+            val heatProgress = ((temperature - 10f) / 40f).coerceIn(0f, 1f)
+            val flameScale = (0.78f + heatProgress * 0.48f) *
+                (1f + kotlin.math.sin(flamePhase.toDouble()).toFloat() * 0.06f)
+            val flameCenterX = cx - dp(42)
+            val flameBaseY = cy - dp(5)
+            val flameHeight = dp(28).toFloat() * flameScale
+            val flameWidth = dp(17).toFloat() * flameScale
+            val flameSway = kotlin.math.sin(flamePhase.toDouble() * 0.8).toFloat() * dp(2)
+            val flamePath = Path().apply {
+                moveTo(flameCenterX - flameWidth * 0.55f, flameBaseY)
+                cubicTo(
+                    flameCenterX - flameWidth * 0.95f + flameSway, flameBaseY - flameHeight * 0.42f,
+                    flameCenterX + flameWidth * 0.10f, flameBaseY - flameHeight * 0.55f,
+                    flameCenterX + flameSway, flameBaseY - flameHeight
+                )
+                cubicTo(
+                    flameCenterX + flameWidth * 0.95f, flameBaseY - flameHeight * 0.55f,
+                    flameCenterX + flameWidth * 0.85f, flameBaseY - flameHeight * 0.25f,
+                    flameCenterX + flameWidth * 0.55f, flameBaseY
+                )
+                close()
             }
-            canvas.drawText("🔥", cx - dp(42), cy - dp(2), flameIconPaint)
+            val outerFlamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = if (boilerOn) Color.rgb(255, 75, 18) else Color.rgb(25, 145, 255)
+                style = Paint.Style.FILL
+                setShadowLayer(dp(6).toFloat(), 0f, 0f, color)
+            }
+            val innerFlamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = if (boilerOn) Color.rgb(255, 190, 25) else Color.rgb(150, 225, 255)
+                style = Paint.Style.FILL
+            }
+            canvas.drawPath(flamePath, outerFlamePaint)
+            val innerPath = Path().apply {
+                moveTo(flameCenterX - flameWidth * 0.25f, flameBaseY)
+                cubicTo(
+                    flameCenterX - flameWidth * 0.35f, flameBaseY - flameHeight * 0.30f,
+                    flameCenterX + flameSway, flameBaseY - flameHeight * 0.45f,
+                    flameCenterX + flameSway * 0.4f, flameBaseY - flameHeight * 0.68f
+                )
+                cubicTo(
+                    flameCenterX + flameWidth * 0.40f, flameBaseY - flameHeight * 0.36f,
+                    flameCenterX + flameWidth * 0.32f, flameBaseY - flameHeight * 0.18f,
+                    flameCenterX + flameWidth * 0.22f, flameBaseY
+                )
+                close()
+            }
+            canvas.drawPath(innerPath, innerFlamePaint)
             valuePaint.textSize = dp(29).toFloat()
             canvas.drawText(temperature.toString(), cx + dp(2), cy - dp(2), valuePaint)
             decimalPaint.textSize = dp(14).toFloat()
