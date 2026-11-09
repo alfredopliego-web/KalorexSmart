@@ -266,49 +266,43 @@ class MainActivity : Activity() {
     }
 
     private fun buildHomePage(root: LinearLayout) {
-        // Encabezado de marca y estado de conexión.
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(8))
-        }
-        header.addView(label("☰", 25, white, true))
-        val brand = label("KalorexSmart®", 25, white, true).apply {
+        // La marca y el WiFi se muestran en el encabezado fijo de buildScreen().
+        // Este panel comienza directamente con el dial, como en la referencia.
+        val gaugePanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-        }
-        header.addView(brand, LinearLayout.LayoutParams(0, dp(48), 1f))
-        header.addView(label(if (wifiConnected) "⌁  ●" else "⌁  ×", 23,
-            if (wifiConnected) green else Color.RED, true))
-        root.addView(header)
-
-        // Dial principal grande: temperatura, flama y botón de encendido integrados.
-        val gaugePanel = panelBox().apply {
-            gravity = Gravity.CENTER
-            setPadding(dp(4), dp(2), dp(4), dp(2))
+            setPadding(dp(1), 0, dp(1), 0)
+            setBackgroundColor(bg)
         }
         gauge = TemperatureGauge(this, setTemp, { value ->
-            setTemp = value.coerceIn(10, 50)
+            setTemp = value.coerceIn(10, 60)
             updateTemperature()
         }, {
             toggleBoilerPower()
         })
-        gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(430)))
+        gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(390)))
         root.addView(gaugePanel)
 
-        // Programación automática en una tarjeta con descripción e interruptor.
+        // Programación automática con interruptor y flecha de acceso.
         val automationPanel = panelBox().apply {
-            setPadding(dp(16), dp(12), dp(16), dp(12))
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.rgb(12, 29, 48))
+                setStroke(dp(1), Color.rgb(49, 104, 153))
+                cornerRadius = dp(18).toFloat()
+            }
         }
         val automationRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        automationRow.addView(label("▦", 28, blue, true))
-        automationRow.addView(space(dp(12)))
+        automationRow.addView(label("▦", 27, blue, true))
+        automationRow.addView(space(dp(10)))
         val automationText = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(label("Programación automática", 17, white, true))
-            addView(label("Encendido / Apagado por horario", 13, Color.LTGRAY))
+            addView(label("Programación automática", 16, white, true))
+            addView(label("Encendido / Apagado por horario", 12, Color.LTGRAY))
         }
         automationRow.addView(automationText, LinearLayout.LayoutParams(0, -2, 1f))
         val automationSwitch = Switch(this).apply {
@@ -328,72 +322,76 @@ class MainActivity : Activity() {
             }
         }
         automationRow.addView(automationSwitch)
+        automationRow.addView(label("›", 27, white, true))
         automationPanel.addView(automationRow)
         automationPanel.addView(label(
-            if (automationEnabled) "✓ Activa · Próximo evento: ${nextScheduleDescription()}"
+            if (automationEnabled) "✓ Activa · ${nextScheduleDescription()}"
             else "Desconectada · Control manual",
-            12, if (automationEnabled) green else Color.LTGRAY
+            11, if (automationEnabled) green else Color.LTGRAY
         ))
         root.addView(automationPanel)
 
-        // Reloj y fecha inmediatamente debajo de la programación.
+        // Hora y fecha, en una sola tarjeta justo debajo de la programación.
         val now = Calendar.getInstance()
-        val clockRow = LinearLayout(this).apply {
+        val clockPanel = panelBox().apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.rgb(12, 29, 48))
+                setStroke(dp(1), Color.rgb(49, 104, 153))
+                cornerRadius = dp(18).toFloat()
+            }
         }
-        clockRow.addView(label("◷", 27, white, true))
+        clockPanel.addView(label("◷", 25, white, true))
         val clockText = label(
             "%02d:%02d:%02d".format(now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), now.get(Calendar.SECOND)),
-            22, white, true
+            21, white, true
         ).apply {
             gravity = Gravity.CENTER
             tag = "kalorex_main_clock"
         }
-        clockRow.addView(clockText, LinearLayout.LayoutParams(0, -2, 1f))
+        clockPanel.addView(clockText, LinearLayout.LayoutParams(0, -2, 1f))
         val dateText = label(
             "%s, %02d %s %d".format(
                 arrayOf("Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb")[now.get(Calendar.DAY_OF_WEEK) - 1],
                 now.get(Calendar.DAY_OF_MONTH),
                 arrayOf("Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic")[now.get(Calendar.MONTH)],
                 now.get(Calendar.YEAR)
-            ), 14, white, true
+            ), 13, white, true
         ).apply { gravity = Gravity.CENTER }
-        clockRow.addView(dateText, LinearLayout.LayoutParams(0, -2, 1f))
-        root.addView(clockRow)
+        clockPanel.addView(dateText, LinearLayout.LayoutParams(0, -2, 1f))
+        root.addView(clockPanel)
 
-        // Tarjeta de acceso al servomotor.
-        val servoShortcut = panelBox().apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+        // Acceso moderno al control del servomotor.
+        val servoPanel = panelBox().apply {
+            setPadding(dp(10), dp(8), dp(10), dp(8))
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.rgb(13, 28, 45))
-                setStroke(dp(1), Color.rgb(40, 130, 205))
-                cornerRadius = dp(20).toFloat()
+                setColor(Color.rgb(12, 29, 48))
+                setStroke(dp(1), Color.rgb(49, 123, 190))
+                cornerRadius = dp(18).toFloat()
             }
         }
-        val servoOpenControl = LinearLayout(this).apply {
+        val servoRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setPadding(dp(8), dp(4), dp(8), dp(4))
             isClickable = true
             isFocusable = true
             setOnClickListener { showPage("servo") }
         }
-        servoOpenControl.addView(label("⚙", 30, blue, true))
-        servoOpenControl.addView(space(dp(14)))
-        val servoControlText = LinearLayout(this).apply {
+        // Representación gráfica del servomotor, sin depender de un archivo externo.
+        servoRow.addView(label("⚙", 31, blue, true))
+        servoRow.addView(space(dp(12)))
+        val servoText = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(label("Control de servomotor", 17, white, true))
-            addView(label("Abrir o cerrar válvula", 14, Color.LTGRAY))
+            addView(label("Control de servomotor", 16, white, true))
+            addView(label("Abrir o cerrar válvula", 13, Color.LTGRAY))
         }
-        servoOpenControl.addView(servoControlText, LinearLayout.LayoutParams(0, -2, 1f))
-        servoOpenControl.addView(label("›", 30, white, true))
-        servoShortcut.addView(servoOpenControl, LinearLayout.LayoutParams(-1, dp(82)))
-        root.addView(servoShortcut)
-
-        // El estado general del boiler sigue visible en el dial y en Ajustes.
+        servoRow.addView(servoText, LinearLayout.LayoutParams(0, -2, 1f))
+        servoRow.addView(label("›", 28, white, true))
+        servoPanel.addView(servoRow, LinearLayout.LayoutParams(-1, dp(68)))
+        root.addView(servoPanel)
     }
 
     private fun buildServoPage(root: LinearLayout) {
