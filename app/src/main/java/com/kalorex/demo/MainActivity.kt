@@ -226,6 +226,20 @@ class MainActivity : Activity() {
         applyScheduleForCurrentTime()
     }
 
+    private fun navItem(symbol: String, caption: String, action: () -> Unit): TextView {
+        return TextView(this).apply {
+            text = if (caption.isBlank()) symbol else "$symbol\\n$caption"
+            gravity = Gravity.CENTER
+            setTextColor(Color.LTGRAY)
+            textSize = if (caption.isBlank()) 25f else 14f
+            includeFontPadding = false
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            setOnClickListener { action() }
+        }
+    }
+
     private fun showPage(page: String) {
         currentPage = page
         pageContainer.removeAllViews()
