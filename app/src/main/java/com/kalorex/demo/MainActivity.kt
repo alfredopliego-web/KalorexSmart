@@ -675,8 +675,19 @@ class MainActivity : Activity() {
             if (!boilerOn) return
             val cx = width / 2f
             val base = height * 0.88f
-            val scale = min(width, height) * 0.42f
-            canvas.drawRoundRect(RectF(cx - scale * 1.25f, base - dp(8), cx + scale * 1.25f, base + dp(2)), dp(6).toFloat(), dp(6).toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(65, 70, 75) })
+
+            // La flama crece según la temperatura simulada: pequeña al iniciar,
+            // más alta y ancha conforme se acerca a la temperatura objetivo.
+            val temperatureProgress = ((setTemp - 10f) / 40f).coerceIn(0f, 1f)
+            val temperatureScale = 0.30f + temperatureProgress * 0.23f
+            val pulse = 1f + sin(phase.toDouble() * 1.35).toFloat() * 0.035f
+            val scale = min(width, height) * temperatureScale * pulse
+
+            canvas.drawRoundRect(
+                RectF(cx - scale * 1.25f, base - dp(8), cx + scale * 1.25f, base + dp(2)),
+                dp(6).toFloat(), dp(6).toFloat(),
+                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(65, 70, 75) }
+            )
             val sway = sin(phase.toDouble()).toFloat() * scale * 0.10f
             val flame = Path().apply {
                 moveTo(cx - scale * 0.65f, base)
