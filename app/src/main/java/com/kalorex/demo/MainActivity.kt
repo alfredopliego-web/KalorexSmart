@@ -1204,7 +1204,11 @@ class MainActivity : Activity() {
             val radius = min(width, height) * 0.37f
             bounds.set(cx - radius, cy - radius, cx + radius, cy + radius)
 
-            // Carcasa metálica y anillo turquesa inspirados en la referencia visual.
+            // El color del dial cambia progresivamente según la temperatura.
+            val temperatureHue = (190f - ((temperature.coerceIn(10, 50) - 10) / 40f) * 190f)
+            val temperatureColor = Color.HSVToColor(floatArrayOf(temperatureHue, 0.88f, 1f))
+
+            // Carcasa metálica y anillo de temperatura inspirados en la referencia visual.
             val outerGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = temperatureColor
                 style = Paint.Style.STROKE
@@ -1235,8 +1239,6 @@ class MainActivity : Activity() {
             canvas.drawArc(bounds, 135f, 270f, false, trackPaint)
             val sweep = ((temperature.coerceIn(10, 50) - 10) / 40f) * 270f
             arcPaint.strokeWidth = dp(8).toFloat()
-            val temperatureHue = (190f - ((temperature.coerceIn(10, 50) - 10) / 40f) * 190f)
-            val temperatureColor = Color.HSVToColor(floatArrayOf(temperatureHue, 0.88f, 1f))
             arcPaint.color = temperatureColor
             canvas.drawArc(bounds, 135f, sweep, false, arcPaint)
 
