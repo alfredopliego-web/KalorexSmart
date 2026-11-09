@@ -181,6 +181,7 @@ class MainActivity : Activity() {
             setBackgroundColor(bg)
         }
 
+        // Encabezado de marca: menú, nombre de la aplicación y WiFi.
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -193,46 +194,37 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
         }
-        titleBox.addView(label("🔥 KALOREX", 30, white, true))
+        titleBox.addView(label("KalorexSmart®", 25, white, true))
         header.addView(titleBox, LinearLayout.LayoutParams(0, dp(54), 1f))
-        header.addView(textButton("⚙", 24).apply {
-            setOnClickListener { showSettings() }
-        }, LinearLayout.LayoutParams(dp(44), dp(50)))
+        header.addView(label(if (wifiConnected) "⌁  ●" else "⌁  ×", 22,
+            if (wifiConnected) green else Color.RED, true))
         main.addView(header)
 
+        pageContainer = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
+        }
+        main.addView(pageContainer)
+
+        // Navegación fija en la parte inferior.
         val nav = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(dp(5), 0, dp(5), 0)
             setBackgroundColor(panel)
         }
-        navHome = navItem("🔥", "Inicio") { showPage("home") }
-        navSchedule = navItem("⏰", "Programación") { showPage("schedule") }
+        navHome = navItem("⌂", "Inicio") { showPage("home") }
+        navSchedule = navItem("▦", "Programación") { showPage("schedule") }
         navSettings = navItem("⚙", "") { showSettings() }
         listOf(navHome, navSchedule, navSettings).forEach {
-            nav.addView(it, LinearLayout.LayoutParams(0, dp(52), 1f))
+            nav.addView(it, LinearLayout.LayoutParams(0, dp(58), 1f))
         }
         main.addView(nav)
 
-        pageContainer = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
-        }
-        main.addView(pageContainer)
         setContentView(main)
-
         showPage("home")
         updateStatus()
         applyScheduleForCurrentTime()
     }
-
-    private fun navItem(symbol: String, caption: String, action: () -> Unit): TextView =
-        TextView(this).apply {
-            text = if (caption.isBlank()) symbol else "$symbol\n$caption"
-            textSize = 12f
-            gravity = Gravity.CENTER
-            setTextColor(Color.LTGRAY)
-            setOnClickListener { action() }
-        }
 
     private fun showPage(page: String) {
         currentPage = page
@@ -260,47 +252,51 @@ class MainActivity : Activity() {
     }
 
     private fun buildHomePage(root: LinearLayout) {
-        // Reloj + estado WiFi en la parte superior, estilo panel de control.
-        val clockWifi = LinearLayout(this).apply {
+        // Encabezado de marca y estado de conexión.
+        val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(4), dp(8), dp(8))
         }
-        val wifiCard = panelBox()
-        wifiCard.gravity = Gravity.CENTER
-        wifiCard.addView(label("⌁", 25, green, true))
-        wifiCard.addView(label(if (wifiConnected) "En línea" else "Sin conexión", 12,
+        header.addView(label("☰", 25, white, true))
+        val brand = label("KalorexSmart®", 25, white, true).apply {
+            gravity = Gravity.CENTER
+        }
+        header.addView(brand, LinearLayout.LayoutParams(0, dp(48), 1f))
+        header.addView(label(if (wifiConnected) "⌁  ●" else "⌁  ×", 23,
             if (wifiConnected) green else Color.RED, true))
-        clockWifi.addView(wifiCard, LinearLayout.LayoutParams(-1, dp(48), 1f))
-        root.addView(clockWifi)
+        root.addView(header)
 
-        // Flama animada: se muestra únicamente cuando el boiler está encendido.
-        flameView = FlameView(this).apply { visibility = View.VISIBLE }
-        root.addView(flameView, LinearLayout.LayoutParams(-1, dp(105)))
-
-        // Temperatura y objetivo.
-        val gaugePanel = panelBox()
-        gaugePanel.gravity = Gravity.CENTER
-        gaugePanel.addView(sectionTitle("TEMPERATURA ACTUAL"))
+        // Dial principal grande: temperatura, flama y botón de encendido integrados.
+        val gaugePanel = panelBox().apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(4), dp(2), dp(4), dp(2))
+        }
         gauge = TemperatureGauge(this, setTemp, { value ->
             setTemp = value.coerceIn(10, 50)
             updateTemperature()
         }, {
             toggleBoilerPower()
         })
-        gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(270)))
-        gaugePanel.addView(label("Objetivo programado: ${targetTemperature} °C", 15, blue, true).apply {
-            gravity = Gravity.CENTER
-        })
+        gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(430)))
         root.addView(gaugePanel)
 
-        // Tarjeta de programación con interruptor en el panel principal.
-        val automationPanel = panelBox()
+        // Programación automática en una tarjeta con descripción e interruptor.
+        val automationPanel = panelBox().apply {
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
         val automationRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        automationRow.addView(label("⏰  Programación automática", 16, white, true),
-            LinearLayout.LayoutParams(0, -2, 1f))
+        automationRow.addView(label("▦", 28, blue, true))
+        automationRow.addView(space(dp(12)))
+        val automationText = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label("Programación automática", 17, white, true))
+            addView(label("Encendido / Apagado por horario", 13, Color.LTGRAY))
+        }
+        automationRow.addView(automationText, LinearLayout.LayoutParams(0, -2, 1f))
         val automationSwitch = Switch(this).apply {
             isChecked = automationEnabled
             setOnCheckedChangeListener { _, checked ->
@@ -322,57 +318,68 @@ class MainActivity : Activity() {
         automationPanel.addView(label(
             if (automationEnabled) "✓ Activa · Próximo evento: ${nextScheduleDescription()}"
             else "Desconectada · Control manual",
-            13, if (automationEnabled) green else Color.LTGRAY
+            12, if (automationEnabled) green else Color.LTGRAY
         ))
         root.addView(automationPanel)
 
-        // Reloj principal ubicado debajo de la programación automática.
-        val mainClock = label("⌚  --:--:--", 18, blue, true).apply {
+        // Reloj y fecha inmediatamente debajo de la programación.
+        val now = Calendar.getInstance()
+        val clockRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        clockRow.addView(label("◷", 27, white, true))
+        val clockText = label(
+            "%02d:%02d:%02d".format(now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), now.get(Calendar.SECOND)),
+            22, white, true
+        ).apply {
             gravity = Gravity.CENTER
-            setPadding(dp(8), dp(10), dp(8), dp(10))
             tag = "kalorex_main_clock"
         }
-        root.addView(mainClock)
+        clockRow.addView(clockText, LinearLayout.LayoutParams(0, -2, 1f))
+        val dateText = label(
+            "%s, %02d %s %d".format(
+                arrayOf("Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb")[now.get(Calendar.DAY_OF_WEEK) - 1],
+                now.get(Calendar.DAY_OF_MONTH),
+                arrayOf("Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic")[now.get(Calendar.MONTH)],
+                now.get(Calendar.YEAR)
+            ), 14, white, true
+        ).apply { gravity = Gravity.CENTER }
+        clockRow.addView(dateText, LinearLayout.LayoutParams(0, -2, 1f))
+        root.addView(clockRow)
 
-        // Estado del boiler: el control de encendido/apagado está integrado en el dial.
-        val powerPanel = panelBox()
-        powerPanel.addView(label("♨  Estado del boiler", 13, white, true))
-        homeBoilerStatus = label(if (boilerOn) "ENCENDIDO" else "APAGADO", 14,
-            if (boilerOn) green else Color.rgb(255, 90, 90), true)
-        powerPanel.addView(homeBoilerStatus)
-        root.addView(powerPanel)
-
-        // El servomotor se controla desde su propia pestaña.
+        // Tarjeta de acceso al servomotor.
         val servoShortcut = panelBox().apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.rgb(19, 25, 31))
-                setStroke(dp(1), Color.rgb(0, 145, 255))
-                cornerRadius = dp(16).toFloat()
+                setColor(Color.rgb(13, 28, 45))
+                setStroke(dp(1), Color.rgb(40, 130, 205))
+                cornerRadius = dp(20).toFloat()
             }
         }
         val servoOpenControl = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(8), dp(14), dp(8))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
             isClickable = true
             isFocusable = true
             setOnClickListener { showPage("servo") }
         }
-        servoOpenControl.addView(label("♧", 27, blue, true))
-        servoOpenControl.addView(space(dp(12)))
+        servoOpenControl.addView(label("⚙", 30, blue, true))
+        servoOpenControl.addView(space(dp(14)))
         val servoControlText = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(label("CONTROL DE SERVOMOTOR", 13, white, true))
-            addView(label("Abrir panel de válvula", 11, Color.LTGRAY, false))
+            addView(label("Control de servomotor", 17, white, true))
+            addView(label("Abrir o cerrar válvula", 14, Color.LTGRAY))
         }
         servoOpenControl.addView(servoControlText, LinearLayout.LayoutParams(0, -2, 1f))
-        servoOpenControl.addView(label("›", 27, blue, true))
-        servoShortcut.addView(servoOpenControl, LinearLayout.LayoutParams(-1, dp(58)))
+        servoOpenControl.addView(label("›", 30, white, true))
+        servoShortcut.addView(servoOpenControl, LinearLayout.LayoutParams(-1, dp(82)))
         root.addView(servoShortcut)
 
-        // El estado del sistema se consulta desde Ajustes.
+        // El estado general del boiler sigue visible en el dial y en Ajustes.
     }
 
     private fun buildServoPage(root: LinearLayout) {
@@ -1178,6 +1185,7 @@ class MainActivity : Activity() {
         }
         private val bounds = RectF()
         private var powerHitBounds = RectF()
+        private var powerTouchStarted = false
         private var temperature = initialTemperature.coerceIn(10, 50)
         private var target = targetTemperature.coerceIn(10, 50)
         private var dragging = false
@@ -1261,9 +1269,8 @@ class MainActivity : Activity() {
             decimalPaint.textSize = dp(14).toFloat()
             canvas.drawText("°C", cx + dp(31), cy - dp(2), decimalPaint)
  
-            // El dial completo funciona como botón de encendido. El anillo azul
-            // indica el estado activo; arrastrar sobre el borde ajusta temperatura.
-            powerHitBounds.set(cx - radius, cy - radius, cx + radius, cy + radius)
+            // El símbolo de encendido es un control independiente; el resto del dial
+            // queda disponible para ajustar la temperatura mediante arrastre.
             val activeColor = if (boilerOn) Color.rgb(0, 145, 255) else temperatureColor
             val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = activeColor
@@ -1277,6 +1284,13 @@ class MainActivity : Activity() {
             val symbolRadius = dp(8).toFloat()
             val symbolX = cx
             val symbolY = cy + radius * 0.48f
+            val powerTouchRadius = dp(22).toFloat()
+            powerHitBounds.set(
+                symbolX - powerTouchRadius,
+                symbolY - powerTouchRadius,
+                symbolX + powerTouchRadius,
+                symbolY + powerTouchRadius
+            )
             canvas.drawArc(RectF(symbolX - symbolRadius, symbolY - symbolRadius,
                 symbolX + symbolRadius, symbolY + symbolRadius), 135f, 270f, false, powerSymbolPaint)
             canvas.drawLine(symbolX, symbolY - dp(12).toFloat(), symbolX, symbolY + dp(1).toFloat(), powerSymbolPaint)
@@ -1287,11 +1301,12 @@ class MainActivity : Activity() {
         override fun onTouchEvent(event: MotionEvent): Boolean {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    powerPressed = true
                     touchStartX = event.x
                     touchStartY = event.y
                     movedBeyondTap = false
                     dragging = false
+                    powerTouchStarted = powerHitBounds.contains(event.x, event.y)
+                    powerPressed = powerTouchStarted
                     invalidate()
                     return true
                 }
@@ -1300,7 +1315,10 @@ class MainActivity : Activity() {
                     val dy = event.y - touchStartY
                     if (!movedBeyondTap && kotlin.math.hypot(dx.toDouble(), dy.toDouble()) > dp(12)) {
                         movedBeyondTap = true
-                        dragging = true
+                        // Un gesto que empieza sobre el botón de encendido nunca ajusta
+                        // la temperatura ni conmuta el boiler al soltar.
+                        dragging = !powerTouchStarted
+                        powerPressed = false
                     }
                     if (dragging) updateFromTouch(event.x, event.y)
                     invalidate()
@@ -1308,10 +1326,13 @@ class MainActivity : Activity() {
                 }
                 MotionEvent.ACTION_UP -> {
                     powerPressed = false
-                    if (!movedBeyondTap) {
+                    // Solo un toque corto directamente sobre el símbolo enciende/apaga.
+                    // Un toque o arrastre sobre el dial no afecta el estado del boiler.
+                    if (powerTouchStarted && !movedBeyondTap && powerHitBounds.contains(event.x, event.y)) {
                         onPowerToggle()
                     }
                     dragging = false
+                    powerTouchStarted = false
                     invalidate()
                     performClick()
                     return true
@@ -1319,6 +1340,7 @@ class MainActivity : Activity() {
                 MotionEvent.ACTION_CANCEL -> {
                     powerPressed = false
                     dragging = false
+                    powerTouchStarted = false
                     movedBeyondTap = false
                     invalidate()
                     return true
