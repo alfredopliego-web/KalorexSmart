@@ -133,7 +133,6 @@ class MainActivity : Activity() {
     private lateinit var timerText: TextView
     private lateinit var timerSwitch: Switch
     private lateinit var gauge: TemperatureGauge
-    private lateinit var powerButton: Button
     private lateinit var homeBoilerStatus: TextView
     private lateinit var pauseButton: Button
 
@@ -202,7 +201,7 @@ class MainActivity : Activity() {
             setPadding(dp(5), 0, dp(5), 0)
             setBackgroundColor(panel)
         }
-        navHome = navItem("⌂", "Inicio") { showPage("home") }
+        navHome = navItem("🔥", "Inicio") { showPage("home") }
         navSchedule = navItem("⏰", "Programación") { showPage("schedule") }
         navSettings = navItem("⚙", "Ajustes") { showSettings() }
         listOf(navHome, navSchedule, navSettings).forEach {
@@ -299,10 +298,12 @@ class MainActivity : Activity() {
         val gaugePanel = panelBox()
         gaugePanel.gravity = Gravity.CENTER
         gaugePanel.addView(sectionTitle("TEMPERATURA ACTUAL"))
-        gauge = TemperatureGauge(this, setTemp) { value ->
+        gauge = TemperatureGauge(this, setTemp, { value ->
             setTemp = value.coerceIn(10, 50)
             updateTemperature()
-        }
+        }, {
+            toggleBoilerPower()
+        })
         gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(190)))
         gaugePanel.addView(label("Objetivo programado: ${targetTemperature} °C", 15, blue, true).apply {
             gravity = Gravity.CENTER
@@ -342,39 +343,12 @@ class MainActivity : Activity() {
         ))
         root.addView(automationPanel)
 
-        // Encendido y estado del boiler.
+        // Estado del boiler: el control de encendido/apagado está integrado en el dial.
         val powerPanel = panelBox()
-        val powerRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val boilerInfo = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        boilerInfo.addView(label("♨  Boiler", 15, white, true))
+        powerPanel.addView(label("♨  Estado del boiler", 13, white, true))
         homeBoilerStatus = label(if (boilerOn) "ENCENDIDO" else "APAGADO", 14,
-            if (boilerOn) green else Color.RED, true)
-        boilerInfo.addView(homeBoilerStatus)
-        powerRow.addView(boilerInfo, LinearLayout.LayoutParams(0, -2, 1f))
-        powerButton = actionButton(if (boilerOn) "🔥  ⏻ APAGAR" else "⏻  ENCENDER",
-            if (boilerOn) Color.rgb(30, 155, 75) else Color.rgb(190, 45, 55))
-        powerButton.setOnClickListener {
-            boilerOn = !boilerOn
-            manualOverride = true
-            savePreferences()
-            if (boilerOn) {
-                stopGradualCooling()
-                if (automationEnabled) beginGradualHeating(targetTemperature)
-            } else {
-                stopGradualHeating()
-                beginGradualCooling()
-            }
-            updateStatus()
-            showPage("home")
-        }
-        powerRow.addView(powerButton, LinearLayout.LayoutParams(dp(128), dp(44)))
-        powerPanel.addView(powerRow)
+            if (boilerOn) green else Color.rgb(255, 90, 90), true)
+        powerPanel.addView(homeBoilerStatus)
         root.addView(powerPanel)
 
         // El servomotor se controla desde su propia pestaña.
@@ -706,6 +680,20 @@ class MainActivity : Activity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
+    private fun toggleBoilerPower() {
+        boilerOn = !boilerOn
+        manualOverride = true
+        savePreferences()
+        if (boilerOn) {
+            stopGradualCooling()
+            if (automationEnabled) beginGradualHeating(targetTemperature)
+        } else {
+            stopGradualHeating()
+            beginGradualCooling()
+        }
+        updateStatus()
+    }
+
     private fun updateTemperature() {
         actualTemp = setTemp.toFloat()
         if (::gauge.isInitialized) {
@@ -722,14 +710,7 @@ class MainActivity : Activity() {
             homeBoilerStatus.text = if (boilerOn) "ENCENDIDO" else "APAGADO"
             homeBoilerStatus.setTextColor(if (boilerOn) green else Color.rgb(255, 90, 90))
         }
-        if (::powerButton.isInitialized) {
-            powerButton.text = if (boilerOn) "🔥  ⏻ APAGAR" else "⏻ ENCENDER"
-            powerButton.setBackgroundTintList(
-                android.content.res.ColorStateList.valueOf(
-                    if (boilerOn) green else Color.rgb(190, 45, 55)
-                )
-            )
-        }
+        if (::gauge.isInitialized) gauge.invalidate()
         flameView?.visibility = View.VISIBLE
         flameView?.invalidate()
         savePreferences()
@@ -1128,7 +1109,8 @@ class MainActivity : Activity() {
     private inner class TemperatureGauge(
         context: android.content.Context,
         initialTemperature: Int,
-        private val onTemperatureChanged: (Int) -> Unit
+        private val onTemperatureChanged: (Int) -> Unit,
+        private val onPowerToggle: () -> Unit
     ) : View(context) {
 
         private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1167,7 +1149,21 @@ class MainActivity : Activity() {
             textAlign = Paint.Align.CENTER
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
+        private val powerRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val powerSymbolPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            strokeWidth = dp(3).toFloat()
+        }
+        private val powerLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
         private val bounds = RectF()
+        private var powerHitBounds = RectF()
         private var temperature = initialTemperature.coerceIn(0, 70)
         private var target = targetTemperature.coerceIn(0, 70)
         private var dragging = false
@@ -1225,15 +1221,31 @@ class MainActivity : Activity() {
                 )
             }
 
-            valuePaint.textSize = dp(57).toFloat()
-            canvas.drawText(temperature.toString(), cx - dp(4), cy + dp(13), valuePaint)
-            decimalPaint.textSize = dp(24).toFloat()
-            canvas.drawText("°", cx + dp(35), cy - dp(2), decimalPaint)
-            decimalPaint.textSize = dp(17).toFloat()
-            canvas.drawText(".0", cx + dp(38), cy + dp(20), decimalPaint)
+            // Lectura de temperatura en la parte superior del dial.
+            valuePaint.textSize = dp(38).toFloat()
+            canvas.drawText(temperature.toString(), cx - dp(5), cy - dp(5), valuePaint)
+            decimalPaint.textSize = dp(18).toFloat()
+            canvas.drawText("°C", cx + dp(30), cy - dp(5), decimalPaint)
 
-            captionPaint.textSize = dp(11).toFloat()
-            canvas.drawText("WATER TEMPERATURE", cx, cy + dp(48), captionPaint)
+            // Botón táctil de encendido/apagado integrado al centro del dial.
+            val buttonY = cy + dp(35).toFloat()
+            val buttonRadius = dp(21).toFloat()
+            powerHitBounds.set(cx - buttonRadius * 1.5f, buttonY - buttonRadius * 1.5f,
+                cx + buttonRadius * 1.5f, buttonY + buttonRadius * 1.5f)
+            powerRingPaint.color = if (boilerOn) Color.rgb(0, 205, 135) else Color.rgb(170, 48, 58)
+            canvas.drawCircle(cx, buttonY, buttonRadius + dp(4), powerRingPaint)
+            powerRingPaint.color = Color.rgb(20, 22, 24)
+            canvas.drawCircle(cx, buttonY, buttonRadius, powerRingPaint)
+            powerSymbolPaint.color = if (boilerOn) Color.rgb(80, 255, 175) else Color.rgb(255, 115, 120)
+            val symbolRadius = dp(9).toFloat()
+            canvas.drawArc(RectF(cx - symbolRadius, buttonY - symbolRadius,
+                cx + symbolRadius, buttonY + symbolRadius), 135f, 270f, false, powerSymbolPaint)
+            canvas.drawLine(cx, buttonY - dp(13), cx, buttonY + dp(1), powerSymbolPaint)
+            powerLabelPaint.textSize = dp(9).toFloat()
+            canvas.drawText(if (boilerOn) "ENCENDIDO" else "APAGADO", cx, buttonY + dp(34), powerLabelPaint)
+
+            captionPaint.textSize = dp(10).toFloat()
+            canvas.drawText("TEMPERATURA", cx, cy + dp(18), captionPaint)
 
             // End labels.
             captionPaint.textSize = dp(12).toFloat()
@@ -1246,6 +1258,10 @@ class MainActivity : Activity() {
         override fun onTouchEvent(event: MotionEvent): Boolean {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    if (powerHitBounds.contains(event.x, event.y)) {
+                        dragging = false
+                        return true
+                    }
                     dragging = true
                     updateFromTouch(event.x, event.y)
                     return true
@@ -1254,9 +1270,17 @@ class MainActivity : Activity() {
                     if (dragging) updateFromTouch(event.x, event.y)
                     return true
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                MotionEvent.ACTION_UP -> {
+                    if (!dragging && powerHitBounds.contains(event.x, event.y)) {
+                        onPowerToggle()
+                        invalidate()
+                    }
                     dragging = false
                     performClick()
+                    return true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    dragging = false
                     return true
                 }
             }
