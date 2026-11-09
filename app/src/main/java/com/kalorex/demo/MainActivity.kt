@@ -203,7 +203,7 @@ class MainActivity : Activity() {
         }
         navHome = navItem("🔥", "Inicio") { showPage("home") }
         navSchedule = navItem("⏰", "Programación") { showPage("schedule") }
-        navSettings = navItem("⚙", "Ajustes") { showSettings() }
+        navSettings = navItem("⚙", "") { showSettings() }
         listOf(navHome, navSchedule, navSettings).forEach {
             nav.addView(it, LinearLayout.LayoutParams(0, dp(52), 1f))
         }
@@ -222,7 +222,7 @@ class MainActivity : Activity() {
 
     private fun navItem(symbol: String, caption: String, action: () -> Unit): TextView =
         TextView(this).apply {
-            text = "$symbol\n$caption"
+            text = if (caption.isBlank()) symbol else "$symbol\n$caption"
             textSize = 12f
             gravity = Gravity.CENTER
             setTextColor(Color.LTGRAY)
@@ -260,39 +260,17 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val clockCard = panelBox()
-        clockCard.orientation = LinearLayout.HORIZONTAL
-        clockCard.gravity = Gravity.CENTER_VERTICAL
-        clockCard.addView(label("◷", 28, blue, true))
-        val clockText = label("", 17, white, true)
-        clockCard.addView(clockText, LinearLayout.LayoutParams(0, -2, 1f))
         val wifiCard = panelBox()
         wifiCard.gravity = Gravity.CENTER
         wifiCard.addView(label("⌁", 25, green, true))
         wifiCard.addView(label(if (wifiConnected) "En línea" else "Sin conexión", 12,
             if (wifiConnected) green else Color.RED, true))
-        clockWifi.addView(clockCard, LinearLayout.LayoutParams(0, dp(52), 1.5f))
-        clockWifi.addView(space(dp(8)))
-        clockWifi.addView(wifiCard, LinearLayout.LayoutParams(0, dp(52), 1f))
+        clockWifi.addView(wifiCard, LinearLayout.LayoutParams(-1, dp(48), 1f))
         root.addView(clockWifi)
 
         // Flama animada: se muestra únicamente cuando el boiler está encendido.
         flameView = FlameView(this).apply { visibility = View.VISIBLE }
         root.addView(flameView, LinearLayout.LayoutParams(-1, dp(105)))
-
-        val clockHandler = android.os.Handler(android.os.Looper.getMainLooper())
-        val clockUpdate = object : Runnable {
-            override fun run() {
-                if (currentPage != "home") return
-                val now = Calendar.getInstance()
-                clockText.text = "%02d:%02d:%02d  %s".format(
-                    now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE), now.get(Calendar.SECOND),
-                    arrayOf("Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb")[now.get(Calendar.DAY_OF_WEEK)-1]
-                )
-                clockHandler.postDelayed(this, 1_000L)
-            }
-        }
-        clockUpdate.run()
 
         // Temperatura y objetivo.
         val gaugePanel = panelBox()
@@ -352,10 +330,33 @@ class MainActivity : Activity() {
         root.addView(powerPanel)
 
         // El servomotor se controla desde su propia pestaña.
-        val servoShortcut = panelBox()
-        servoShortcut.addView(actionButton("♧  ABRIR CONTROL DE SERVOMOTOR", blue).apply {
+        val servoShortcut = panelBox().apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.rgb(19, 25, 31))
+                setStroke(dp(1), Color.rgb(0, 145, 255))
+                cornerRadius = dp(16).toFloat()
+            }
+        }
+        val servoOpenControl = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            isClickable = true
+            isFocusable = true
             setOnClickListener { showPage("servo") }
-        }, LinearLayout.LayoutParams(-1, dp(44)))
+        }
+        servoOpenControl.addView(label("♧", 27, blue, true))
+        servoOpenControl.addView(space(dp(12)))
+        val servoControlText = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label("CONTROL DE SERVOMOTOR", 13, white, true))
+            addView(label("Abrir panel de válvula", 11, Color.LTGRAY, false))
+        }
+        servoOpenControl.addView(servoControlText, LinearLayout.LayoutParams(0, -2, 1f))
+        servoOpenControl.addView(label("›", 27, blue, true))
+        servoShortcut.addView(servoOpenControl, LinearLayout.LayoutParams(-1, dp(58)))
         root.addView(servoShortcut)
 
         // El estado del sistema se consulta desde Ajustes.
@@ -1164,17 +1165,21 @@ class MainActivity : Activity() {
         }
         private val bounds = RectF()
         private var powerHitBounds = RectF()
-        private var temperature = initialTemperature.coerceIn(0, 70)
-        private var target = targetTemperature.coerceIn(0, 70)
+        private var temperature = initialTemperature.coerceIn(10, 50)
+        private var target = targetTemperature.coerceIn(10, 50)
         private var dragging = false
+        private var powerPressed = false
+        private var touchStartX = 0f
+        private var touchStartY = 0f
+        private var movedBeyondTap = false
 
         fun setTemperature(value: Int) {
-            temperature = value.coerceIn(0, 70)
+            temperature = value.coerceIn(10, 50)
             invalidate()
         }
 
         fun setTargetTemperature(value: Int) {
-            target = value.coerceIn(0, 70)
+            target = value.coerceIn(10, 50)
             invalidate()
         }
 
@@ -1182,105 +1187,131 @@ class MainActivity : Activity() {
             super.onDraw(canvas)
 
             val cx = width / 2f
-            val cy = height / 2f + dp(8)
-            val radius = min(width, height) * 0.39f
+            val cy = height / 2f + dp(5).toFloat()
+            val radius = min(width, height) * 0.37f
             bounds.set(cx - radius, cy - radius, cx + radius, cy + radius)
 
-            // Soft raised circular face and the pale outer track, inspired by the Calorex dial.
-            canvas.drawCircle(cx, cy, radius + dp(11).toFloat(), shadowPaint)
-            canvas.drawCircle(cx, cy, radius + dp(5).toFloat(), centerPaint)
+            // Carcasa metálica y anillo turquesa inspirados en la referencia visual.
+            val outerGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(0, 225, 240)
+                style = Paint.Style.STROKE
+                strokeWidth = dp(5).toFloat()
+                setShadowLayer(dp(8).toFloat(), 0f, 0f, Color.rgb(0, 220, 240))
+            }
+            canvas.drawCircle(cx, cy, radius + dp(10), outerGlow)
+            val metalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(95, 101, 106)
+                style = Paint.Style.STROKE
+                strokeWidth = dp(8).toFloat()
+            }
+            canvas.drawCircle(cx, cy, radius + dp(4), metalPaint)
+            canvas.drawCircle(cx, cy, radius, centerPaint)
 
-            trackPaint.strokeWidth = dp(15).toFloat()
-            trackPaint.color = Color.rgb(65, 67, 70)
+            // Al mantener presionado el control completo, el fondo toma un tono azul.
+            if (powerPressed) {
+                val pressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.argb(145, 0, 105, 235)
+                    style = Paint.Style.FILL
+                }
+                canvas.drawCircle(cx, cy, radius - dp(3), pressPaint)
+            }
+
+            // Anillo de temperatura con lectura visual limpia.
+            trackPaint.strokeWidth = dp(8).toFloat()
+            trackPaint.color = Color.rgb(44, 49, 53)
             canvas.drawArc(bounds, 135f, 270f, false, trackPaint)
-
-            val sweep = (temperature / 70f) * 270f
-            arcPaint.strokeWidth = dp(15).toFloat()
-            arcPaint.color = when {
-                temperature >= 50 -> Color.rgb(255, 20, 35)
-                temperature >= 35 -> Color.rgb(255, 85, 15)
-                else -> Color.rgb(255, 170, 20)
+            val sweep = ((temperature.coerceIn(10, 50) - 10) / 40f) * 270f
+            arcPaint.strokeWidth = dp(8).toFloat()
+            arcPaint.color = if (boilerOn) Color.rgb(0, 145, 255) else when {
+                temperature >= 50 -> Color.rgb(255, 55, 65)
+                temperature >= 35 -> Color.rgb(255, 125, 35)
+                else -> Color.rgb(0, 225, 240)
             }
             canvas.drawArc(bounds, 135f, sweep, false, arcPaint)
 
-            // Graduations around the dial.
-            val tickRadiusOuter = radius + dp(23)
-            val tickRadiusInner = radius + dp(17)
-            for (i in 0..70) {
-                val angle = Math.toRadians((135f + i / 70f * 270f).toDouble())
-                val major = i % 10 == 0
-                val r1 = if (major) tickRadiusInner - dp(2) else tickRadiusInner
-                val r2 = tickRadiusOuter
-                tickPaint.strokeWidth = if (major) dp(2).toFloat() else dp(1).toFloat()
-                canvas.drawLine(
-                    cx + r1 * cos(angle).toFloat(),
-                    cy + r1 * sin(angle).toFloat(),
-                    cx + r2 * cos(angle).toFloat(),
-                    cy + r2 * sin(angle).toFloat(),
-                    tickPaint
-                )
+            // Pantalla digital central, con temperatura y hora.
+            val display = RectF(cx - radius * 0.69f, cy - radius * 0.52f,
+                cx + radius * 0.69f, cy + radius * 0.12f)
+            val displayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.rgb(8, 11, 13)
+                style = Paint.Style.FILL
             }
-
-            // Lectura de temperatura en la parte superior del dial.
-            valuePaint.textSize = dp(38).toFloat()
-            canvas.drawText(temperature.toString(), cx - dp(5), cy - dp(5), valuePaint)
-            decimalPaint.textSize = dp(18).toFloat()
-            canvas.drawText("°C", cx + dp(30), cy - dp(5), decimalPaint)
-
-            // Botón táctil de encendido/apagado integrado al centro del dial.
-            val buttonY = cy + dp(35).toFloat()
-            val buttonRadius = dp(21).toFloat()
-            powerHitBounds.set(cx - buttonRadius * 1.5f, buttonY - buttonRadius * 1.5f,
-                cx + buttonRadius * 1.5f, buttonY + buttonRadius * 1.5f)
-            powerRingPaint.color = if (boilerOn) Color.rgb(0, 205, 135) else Color.rgb(170, 48, 58)
-            canvas.drawCircle(cx, buttonY, buttonRadius + dp(4), powerRingPaint)
-            powerRingPaint.color = Color.rgb(20, 22, 24)
-            canvas.drawCircle(cx, buttonY, buttonRadius, powerRingPaint)
-            powerSymbolPaint.color = if (boilerOn) Color.rgb(80, 255, 175) else Color.rgb(255, 115, 120)
-            val symbolRadius = dp(9).toFloat()
-            canvas.drawArc(RectF(cx - symbolRadius, buttonY - symbolRadius,
-                cx + symbolRadius, buttonY + symbolRadius), 135f, 270f, false, powerSymbolPaint)
-            canvas.drawLine(cx, buttonY - dp(13), cx, buttonY + dp(1), powerSymbolPaint)
-            powerLabelPaint.textSize = dp(9).toFloat()
-            canvas.drawText(if (boilerOn) "ENCENDIDO" else "APAGADO", cx, buttonY + dp(34), powerLabelPaint)
-
+            canvas.drawRoundRect(display, dp(8).toFloat(), dp(8).toFloat(), displayPaint)
+            // Temperatura colocada enseguida del icono de flama.
+            val flameIconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                textAlign = Paint.Align.CENTER
+                textSize = dp(23).toFloat()
+            }
+            canvas.drawText("🔥", cx - dp(42), cy - dp(2), flameIconPaint)
+            valuePaint.textSize = dp(29).toFloat()
+            canvas.drawText(temperature.toString(), cx + dp(2), cy - dp(2), valuePaint)
+            decimalPaint.textSize = dp(14).toFloat()
+            canvas.drawText("°C", cx + dp(31), cy - dp(2), decimalPaint)
             captionPaint.textSize = dp(10).toFloat()
-            canvas.drawText("TEMPERATURA", cx, cy + dp(18), captionPaint)
+            val now = Calendar.getInstance()
+            val clock = "%02d:%02d".format(now.get(Calendar.HOUR_OF_DAY), now.get(Calendar.MINUTE))
+            canvas.drawText(clock, cx, cy + dp(17), captionPaint)
 
-            // End labels.
-            captionPaint.textSize = dp(12).toFloat()
-            canvas.drawText("0°", cx - radius * 0.82f, cy + radius * 0.98f, captionPaint)
-            canvas.drawText("70°", cx + radius * 0.82f, cy + radius * 0.98f, captionPaint)
-
-
+            // El dial completo funciona como botón de encendido. El anillo azul
+            // indica el estado activo; arrastrar sobre el borde ajusta temperatura.
+            powerHitBounds.set(cx - radius, cy - radius, cx + radius, cy + radius)
+            val activeColor = if (boilerOn) Color.rgb(0, 145, 255) else Color.rgb(85, 95, 105)
+            val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = activeColor
+                style = Paint.Style.STROKE
+                strokeWidth = dp(5).toFloat()
+                setShadowLayer(dp(9).toFloat(), 0f, 0f, activeColor)
+            }
+            canvas.drawCircle(cx, cy, radius - dp(5), glowPaint)
+            powerSymbolPaint.color = if (boilerOn) Color.rgb(115, 205, 255) else Color.rgb(255, 125, 130)
+            powerSymbolPaint.strokeWidth = dp(2.5f.toInt()).toFloat()
+            val symbolRadius = dp(8).toFloat()
+            val symbolX = cx
+            val symbolY = cy + radius * 0.48f
+            canvas.drawArc(RectF(symbolX - symbolRadius, symbolY - symbolRadius,
+                symbolX + symbolRadius, symbolY + symbolRadius), 135f, 270f, false, powerSymbolPaint)
+            canvas.drawLine(symbolX, symbolY - dp(12).toFloat(), symbolX, symbolY + dp(1).toFloat(), powerSymbolPaint)
+            powerLabelPaint.textSize = dp(8).toFloat()
+            canvas.drawText(if (boilerOn) "ENCENDIDO" else "APAGADO", cx, symbolY + dp(25), powerLabelPaint)
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    if (powerHitBounds.contains(event.x, event.y)) {
-                        dragging = false
-                        return true
-                    }
-                    dragging = true
-                    updateFromTouch(event.x, event.y)
+                    powerPressed = true
+                    touchStartX = event.x
+                    touchStartY = event.y
+                    movedBeyondTap = false
+                    dragging = false
+                    invalidate()
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    val dx = event.x - touchStartX
+                    val dy = event.y - touchStartY
+                    if (!movedBeyondTap && kotlin.math.hypot(dx.toDouble(), dy.toDouble()) > dp(12)) {
+                        movedBeyondTap = true
+                        dragging = true
+                    }
                     if (dragging) updateFromTouch(event.x, event.y)
+                    invalidate()
                     return true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (!dragging && powerHitBounds.contains(event.x, event.y)) {
+                    powerPressed = false
+                    if (!movedBeyondTap) {
                         onPowerToggle()
-                        invalidate()
                     }
                     dragging = false
+                    invalidate()
                     performClick()
                     return true
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    powerPressed = false
                     dragging = false
+                    movedBeyondTap = false
+                    invalidate()
                     return true
                 }
             }
@@ -1295,7 +1326,7 @@ class MainActivity : Activity() {
             var relative = angle - 135f
             if (relative < 0f) relative += 360f
             relative = relative.coerceIn(0f, 270f)
-            val value = (relative / 270f * 70f).toInt().coerceIn(0, 70)
+            val value = (10f + relative / 270f * 40f).toInt().coerceIn(10, 50)
             temperature = value
             invalidate()
             onTemperatureChanged(value)
