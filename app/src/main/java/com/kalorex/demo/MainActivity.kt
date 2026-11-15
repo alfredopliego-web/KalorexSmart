@@ -1,6 +1,4 @@
 
-package com.kalorex.demo
-
 import android.app.Activity
 import android.app.AlertDialog
 import android.os.Bundle
@@ -104,7 +102,7 @@ class MainActivity : Activity() {
     }
 
     private fun beginGradualHeating(target: Int) {
-        targetTemperature = target.coerceIn(10, 50)
+        targetTemperature = target.coerceIn(10, 70)
         // Schedule checking runs every second; do not restart this 2-second timer each pass.
         if (boilerOn && automationEnabled && setTemp < targetTemperature && !heatingRunning) {
             heatingRunning = true
@@ -118,8 +116,19 @@ class MainActivity : Activity() {
         heatingHandler.removeCallbacks(heatingRunnable)
         heatingRunning = false
     }
-    private var servoOpen = 99
+    private var servoOpen = 0
     private var lastServoCommandPercent: Int? = null
+    private val servoCommandHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingServoPercent: Int? = null
+    private var lastServoCommandAt = 0L
+    private val servoCommandRunnable = object : Runnable {
+        override fun run() {
+            val percent = pendingServoPercent ?: return
+            pendingServoPercent = null
+            lastServoCommandAt = android.os.SystemClock.elapsedRealtime()
+            sendServoPosition(percent)
+        }
+    }
     private var wifiConnected = true
     private var displayedMonth = Calendar.getInstance().apply { set(Calendar.DAY_OF_MONTH, 1) }
     private val weeklyPlans = Array(7) { WeeklyPlan("06:00", "07:00", 38, true) }
@@ -134,7 +143,6 @@ class MainActivity : Activity() {
         var enabled: Boolean
     )
 
-    private lateinit var servoStatus: TextView
     private var servoConnectionStatus: TextView? = null
     private val servoExecutor = Executors.newSingleThreadExecutor()
     private val servoBaseUrl = "http://192.168.1.188"
@@ -280,7 +288,6 @@ class MainActivity : Activity() {
                 when (page) {
                     "schedule" -> "Programación"
                     "calendar" -> "Calendario"
-                    "servo", "controller" -> "Controlador"
                     else -> "Ajustes"
                 }, 17, white, true
             ))
@@ -289,7 +296,6 @@ class MainActivity : Activity() {
         when (page) {
             "calendar" -> buildCalendarPage(content)
             "schedule" -> buildSchedulePage(content)
-            "servo", "controller" -> buildServoPage(content)
             else -> buildHomePage(content)
         }
         scroll.addView(content)
@@ -310,7 +316,7 @@ class MainActivity : Activity() {
             setBackgroundColor(bg)
         }
         gauge = TemperatureGauge(this, setTemp, { value ->
-            setTemp = value.coerceIn(10, 50)
+            setTemp = value.coerceIn(10, 70)
             updateTemperature()
         }, {
             toggleBoilerPower()
@@ -321,7 +327,7 @@ class MainActivity : Activity() {
         })
         gaugePanel.addView(gauge, LinearLayout.LayoutParams(-1, dp(390)))
         root.addView(gaugePanel)
-        // Al abrir la pantalla, alinea el servo con la temperatura actual si está encendido.
+        // Al abrir la pantalla, alinea el servo solo si el control está encendido.
         if (boilerOn) syncServoWithTemperature(setTemp)
 
         // Programación automática con interruptor y flecha de acceso.
@@ -414,121 +420,28 @@ class MainActivity : Activity() {
         clockPanel.addView(dateText, LinearLayout.LayoutParams(0, -2, 1f))
         root.addView(clockPanel)
 
-        // Acceso moderno al control del servomotor.
-        val servoPanel = panelBox().apply {
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(Color.rgb(12, 29, 48))
-                setStroke(dp(1), Color.rgb(49, 123, 190))
-                cornerRadius = dp(18).toFloat()
-            }
-        }
-        val servoRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(4))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { showPage("servo") }
-        }
-        // Representación gráfica del servomotor, sin depender de un archivo externo.
-        servoRow.addView(label("⚙", 31, blue, true))
-        servoRow.addView(space(dp(12)))
-        val servoText = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(label("Control de servomotor", 16, white, true))
-            addView(label("Control del servomotor", 13, Color.LTGRAY))
-        }
-        servoRow.addView(servoText, LinearLayout.LayoutParams(0, -2, 1f))
-        servoRow.addView(label("›", 28, white, true))
-        servoPanel.addView(servoRow, LinearLayout.LayoutParams(-1, dp(68)))
-        root.addView(servoPanel)
-    }
 
-    private fun buildServoPage(root: LinearLayout) {
-        val servoPanel = panelBox()
-        servoPanel.addView(sectionTitle("CONTROL DE SERVOMOTOR · PROTOTIPO"))
-
-        val heading = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        heading.addView(label("Posición del servomotor", 16, white, true),
-            LinearLayout.LayoutParams(0, -2, 1f))
-        servoStatus = label("$servoOpen%", 18, green, true)
-        heading.addView(servoStatus)
-        servoPanel.addView(heading)
-
-        servoConnectionStatus = label("Conexión pendiente · Red local", 12, Color.LTGRAY)
-        servoPanel.addView(servoConnectionStatus)
-
-        val seek = SeekBar(this).apply {
-            max = 100
-            progress = servoOpen
-            progressTintList = android.content.res.ColorStateList.valueOf(green)
-            thumbTintList = android.content.res.ColorStateList.valueOf(white)
-        }
-        servoPanel.addView(seek)
-
-        val angleText = label("Ángulo aproximado: ${servoOpen * 180 / 100}°", 13, Color.LTGRAY)
-        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                servoOpen = progress
-                servoStatus.text = "$servoOpen%"
-                angleText.text = "Ángulo aproximado: ${servoOpen * 180 / 100}°"
-            }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                sendServoPosition(servoOpen)
-            }
-        })
-        servoPanel.addView(angleText)
-
-        val controls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
-        }
-        controls.addView(actionButton("CERRAR · 0°", panel).apply {
-            setOnClickListener {
-                seek.progress = 0
-                sendServoPosition(0)
-            }
-        }, LinearLayout.LayoutParams(dp(125), dp(44)))
-        controls.addView(space(dp(8)))
-        controls.addView(actionButton("ABRIR · 180°", blue).apply {
-            setOnClickListener {
-                seek.progress = 100
-                sendServoPosition(100)
-            }
-        }, LinearLayout.LayoutParams(dp(135), dp(44)))
-        servoPanel.addView(controls)
-
-        servoPanel.addView(label(
-            "Control de prueba por Wi-Fi local. El teléfono y el ESP8266 deben estar conectados a la misma red.",
-            12, Color.LTGRAY
-        ))
-        servoPanel.addView(label(
-            "Prototipo únicamente para un servomotor libre; no conectar a una válvula de gas.",
-            12, Color.rgb(255, 170, 90), true
-        ))
-        root.addView(servoPanel)
     }
 
     private fun syncServoWithTemperature(temperature: Int) {
-        if (!boilerOn) return
-        val safeTemperature = temperature.coerceIn(10, 50)
-        val percent = ((safeTemperature - 10) * 100) / 40
-        if (lastServoCommandPercent != percent) {
-            lastServoCommandPercent = percent
-            sendServoPosition(percent)
+        val safeTemperature = temperature.coerceIn(10, 70)
+        // 10 °C = 0°, 40 °C = 90°, 70 °C = 180°.
+        val percent = (((safeTemperature - 10) * 100f) / 60f).toInt().coerceIn(0, 100)
+        servoOpen = percent
+        pendingServoPercent = percent
+
+        val now = android.os.SystemClock.elapsedRealtime()
+        val elapsed = now - lastServoCommandAt
+        servoCommandHandler.removeCallbacks(servoCommandRunnable)
+
+        if (lastServoCommandAt == 0L || elapsed >= 2_000L) {
+            servoCommandRunnable.run()
+        } else {
+            servoCommandHandler.postDelayed(servoCommandRunnable, 2_000L - elapsed)
         }
     }
 
     private fun sendServoPosition(percent: Int) {
-        if (!boilerOn) {
-            Toast.makeText(this, "Enciende el control para mover el servomotor", Toast.LENGTH_SHORT).show()
-            return
-        }
         val safePercent = percent.coerceIn(0, 100)
         lastServoCommandPercent = safePercent
         val degrees = (safePercent * 180) / 100
@@ -552,11 +465,6 @@ class MainActivity : Activity() {
                         servoConnectionStatus?.text =
                             "Conectado · Orden enviada: $degrees° ($safePercent%)"
                         servoConnectionStatus?.setTextColor(green)
-                        Toast.makeText(
-                            this@MainActivity,
-                            "Posición enviada al servomotor",
-                            Toast.LENGTH_SHORT
-                        ).show()
                     } else {
                         servoConnectionStatus?.text = "ESP8266 respondió con error: HTTP $responseCode"
                         servoConnectionStatus?.setTextColor(Color.RED)
@@ -748,8 +656,8 @@ class MainActivity : Activity() {
 
 
     private fun loadPreferences() {
-        setTemp = prefs.getInt("setTemp", setTemp).coerceIn(10, 50)
-        targetTemperature = prefs.getInt("targetTemperature", setTemp).coerceIn(10, 50)
+        setTemp = prefs.getInt("setTemp", setTemp).coerceIn(10, 70)
+        targetTemperature = prefs.getInt("targetTemperature", setTemp).coerceIn(10, 70)
         boilerOn = prefs.getBoolean("boilerOn", boilerOn)
         automationEnabled = prefs.getBoolean("automationEnabled", automationEnabled)
         themeMode = prefs.getInt("themeMode", themeMode).coerceIn(0, 1)
@@ -761,7 +669,7 @@ class MainActivity : Activity() {
             val plan = weeklyPlans[i]
             plan.startTime = prefs.getString("plan${i}_start", plan.startTime) ?: plan.startTime
             plan.endTime = prefs.getString("plan${i}_end", plan.endTime) ?: plan.endTime
-            plan.temperature = prefs.getInt("plan${i}_temp", plan.temperature).coerceIn(10, 50)
+            plan.temperature = prefs.getInt("plan${i}_temp", plan.temperature).coerceIn(10, 70)
             plan.enabled = prefs.getBoolean("plan${i}_enabled", plan.enabled)
         }
     }
@@ -808,11 +716,19 @@ class MainActivity : Activity() {
             val base = height * 0.88f
             if (!boilerOn) {
                 // Piloto azul pequeño y animado, siempre visible cuando el boiler está apagado.
-                val pilotPulse = 1f + sin(phase.toDouble() * 1.4).toFloat() * 0.08f
-                val pilotSize = dp(16).toFloat() * pilotPulse
-                val pilotSway = sin(phase.toDouble()).toFloat() * dp(2)
-                val bluePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(35, 145, 255); style = Paint.Style.FILL }
-                val paleBluePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(145, 220, 255); style = Paint.Style.FILL }
+                val coolProgress = ((setTemp - 10f) / 60f).coerceIn(0f, 1f)
+                val pilotPulse = 1f + sin(phase.toDouble() * 1.4).toFloat() * 0.04f
+                val pilotSize = dp(7).toFloat() * (0.45f + coolProgress * 0.55f) * pilotPulse
+                val pilotSway = sin(phase.toDouble()).toFloat() * dp(1)
+                val blueValue = (75 + coolProgress * 110).toInt().coerceIn(75, 185)
+                val bluePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.rgb(15, (70 + coolProgress * 95).toInt(), blueValue)
+                    style = Paint.Style.FILL
+                }
+                val paleBluePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.rgb(65 + (coolProgress * 100).toInt(), 120 + (coolProgress * 100).toInt(), 180 + (coolProgress * 75).toInt())
+                    style = Paint.Style.FILL
+                }
                 val pilot = Path().apply {
                     moveTo(cx - pilotSize * 0.55f, base)
                     cubicTo(cx - pilotSize * 0.8f, base - pilotSize * 0.7f, cx + pilotSway, base - pilotSize * 0.75f, cx + pilotSway, base - pilotSize * 1.45f)
@@ -826,7 +742,7 @@ class MainActivity : Activity() {
 
             // La flama crece según la temperatura simulada: pequeña al iniciar,
             // más alta y ancha conforme se acerca a la temperatura objetivo.
-            val temperatureProgress = ((setTemp - 10f) / 40f).coerceIn(0f, 1f)
+            val temperatureProgress = ((setTemp - 10f) / 60f).coerceIn(0f, 1f)
             val temperatureScale = 0.30f + temperatureProgress * 0.23f
             val pulse = 1f + sin(phase.toDouble() * 1.35).toFloat() * 0.035f
             val scale = min(width, height) * temperatureScale * pulse
@@ -875,8 +791,8 @@ class MainActivity : Activity() {
     private fun updateTemperature() {
         actualTemp = setTemp.toFloat()
         // También cubre los cambios graduales de temperatura ejecutados por la programación.
-        // Si está apagado, no se envía ninguna orden al servomotor.
-        if (boilerOn) syncServoWithTemperature(setTemp)
+        // El servomotor sigue cada cambio del dial durante calentamiento y enfriamiento.
+        syncServoWithTemperature(setTemp)
         if (::gauge.isInitialized) {
             gauge.setTemperature(setTemp)
             gauge.setTargetTemperature(targetTemperature)
@@ -939,7 +855,7 @@ class MainActivity : Activity() {
             stopGradualCooling()
             // Always refresh the target and ensure the gradual-heating task is running.
             // This also handles the case where the boiler was already ON when the schedule starts.
-            targetTemperature = plan.temperature.coerceIn(10, 50)
+            targetTemperature = plan.temperature.coerceIn(10, 70)
             if (!wasOn || setTemp < targetTemperature) {
                 beginGradualHeating(targetTemperature)
             } else {
@@ -1053,7 +969,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         }
         val temperature = SeekBar(this).apply {
-            max = 40
+            max = 60
             progress = plan.temperature - 10
         }
         val startButton = actionButton("Encendido: ${formatTime12Hour(plan.startTime)}", blue)
@@ -1104,14 +1020,13 @@ class MainActivity : Activity() {
     }
 
     private fun showMenu() {
-        val options = arrayOf("Panel principal", "Temporizador", "Servomotor", "Configuración")
+        val options = arrayOf("Panel principal", "Temporizador", "Configuración")
         AlertDialog.Builder(this)
             .setTitle("KalorexSmart")
             .setItems(options) { _, which ->
                 when (which) {
                     1 -> showTimerSettings()
-                    2 -> showPage("servo")
-                    3 -> showSettings()
+                    2 -> showSettings()
                 }
             }
             .setNegativeButton("Cerrar", null)
@@ -1183,7 +1098,7 @@ class MainActivity : Activity() {
 
     private fun showTemperatureSettings() {
         val seek = SeekBar(this).apply {
-            max = 40
+            max = 60
             progress = setTemp - 10
         }
         val valueText = TextView(this).apply {
@@ -1267,6 +1182,8 @@ class MainActivity : Activity() {
                 timerText.text = "00:00"
                 timerSwitch.isChecked = false
                 boilerOn = false
+                stopGradualHeating()
+                beginGradualCooling()
                 updateStatus()
                 Toast.makeText(this@MainActivity, "Temporizador terminado", Toast.LENGTH_LONG).show()
             }
@@ -1296,6 +1213,7 @@ class MainActivity : Activity() {
         scheduleHandler.removeCallbacks(scheduleCheck)
         coolingHandler.removeCallbacks(coolingRunnable)
         heatingHandler.removeCallbacks(heatingRunnable)
+        servoCommandHandler.removeCallbacks(servoCommandRunnable)
         servoExecutor.shutdownNow()
         super.onDestroy()
     }
@@ -1320,6 +1238,12 @@ class MainActivity : Activity() {
             color = Color.rgb(190, 200, 203)
             style = Paint.Style.STROKE
             strokeWidth = dp(1).toFloat()
+        }
+        private val scaleTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(225, 230, 235)
+            textAlign = Paint.Align.CENTER
+            textSize = dp(11).toFloat()
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         private val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(18, 19, 21)
@@ -1360,8 +1284,8 @@ class MainActivity : Activity() {
         private val bounds = RectF()
         private var powerHitBounds = RectF()
         private var powerTouchStarted = false
-        private var temperature = initialTemperature.coerceIn(10, 50)
-        private var target = targetTemperature.coerceIn(10, 50)
+        private var temperature = initialTemperature.coerceIn(10, 70)
+        private var target = targetTemperature.coerceIn(10, 70)
         private var dragging = false
         private var powerPressed = false
         private var touchStartX = 0f
@@ -1389,12 +1313,12 @@ class MainActivity : Activity() {
         }
 
         fun setTemperature(value: Int) {
-            temperature = value.coerceIn(10, 50)
+            temperature = value.coerceIn(10, 70)
             invalidate()
         }
 
         fun setTargetTemperature(value: Int) {
-            target = value.coerceIn(10, 50)
+            target = value.coerceIn(10, 70)
             invalidate()
         }
 
@@ -1407,17 +1331,10 @@ class MainActivity : Activity() {
             bounds.set(cx - radius, cy - radius, cx + radius, cy + radius)
 
             // El color del dial cambia progresivamente según la temperatura.
-            val temperatureHue = (190f - ((temperature.coerceIn(10, 50) - 10) / 40f) * 190f)
+            val temperatureHue = 210f - (((temperature.coerceIn(10, 70) - 10) / 60f) * 210f)
             val temperatureColor = Color.HSVToColor(floatArrayOf(temperatureHue, 0.88f, 1f))
 
             // Carcasa metálica y anillo de temperatura inspirados en la referencia visual.
-            val outerGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = temperatureColor
-                style = Paint.Style.STROKE
-                strokeWidth = dp(5).toFloat()
-                setShadowLayer(dp(8).toFloat(), 0f, 0f, Color.rgb(0, 220, 240))
-            }
-            canvas.drawCircle(cx, cy, radius + dp(10), outerGlow)
             val metalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.rgb(95, 101, 106)
                 style = Paint.Style.STROKE
@@ -1426,24 +1343,25 @@ class MainActivity : Activity() {
             canvas.drawCircle(cx, cy, radius + dp(4), metalPaint)
             canvas.drawCircle(cx, cy, radius, centerPaint)
 
-            // Al mantener presionado el control completo, el fondo toma un tono azul.
-            if (powerPressed) {
-                val pressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = Color.argb(145, 0, 105, 235)
-                    style = Paint.Style.FILL
-                }
-                canvas.drawCircle(cx, cy, radius - dp(3), pressPaint)
-            }
-
             // Anillo de temperatura con lectura visual limpia.
-            val dialRingWidth = dp(if (boilerOn) 16 else 12).toFloat()
+            val dialRingWidth = 9f * resources.displayMetrics.densityDpi / 25.4f
             trackPaint.strokeWidth = dialRingWidth
             trackPaint.color = Color.rgb(44, 49, 53)
             canvas.drawArc(bounds, 135f, 270f, false, trackPaint)
-            val sweep = ((temperature.coerceIn(10, 50) - 10) / 40f) * 270f
+            val sweep = ((temperature.coerceIn(10, 70) - 10) / 60f) * 270f
             arcPaint.strokeWidth = dialRingWidth
             arcPaint.color = temperatureColor
             canvas.drawArc(bounds, 135f, sweep, false, arcPaint)
+
+            // Escala fija: 10, 20, 30, 40, 50, 60 y 70 °C.
+            val labelRadius = radius + dialRingWidth * 0.72f + dp(12)
+            for (index in 0..6) {
+                val angle = Math.toRadians(135.0 + index * 45.0)
+                val labelX = cx + kotlin.math.cos(angle).toFloat() * labelRadius
+                val labelY = cy + kotlin.math.sin(angle).toFloat() * labelRadius +
+                    (scaleTextPaint.textSize * 0.35f)
+                canvas.drawText((10 + index * 10).toString(), labelX, labelY, scaleTextPaint)
+            }
 
             // Pantalla digital central: muestra únicamente la temperatura.
             val display = RectF(cx - radius * 0.69f, cy - radius * 0.52f,
@@ -1454,13 +1372,14 @@ class MainActivity : Activity() {
             }
             canvas.drawRoundRect(display, dp(8).toFloat(), dp(8).toFloat(), displayPaint)
             // Flama animada dentro del dial: azul como piloto apagado y fuego al encender.
-            val heatProgress = ((temperature - 10f) / 40f).coerceIn(0f, 1f)
+            val heatProgress = ((temperature - 10f) / 60f).coerceIn(0f, 1f)
             val flameScale = if (boilerOn) {
                 (1.55f + heatProgress * 0.85f) *
                     (1f + kotlin.math.sin(flamePhase.toDouble()).toFloat() * 0.10f)
             } else {
-                // Piloto azul: conserva tamaño, pero mantiene movimiento ondulante.
-                0.62f * (1f + kotlin.math.sin(flamePhase.toDouble()).toFloat() * 0.025f)
+                // La flama piloto se reduce conforme baja la temperatura durante el enfriamiento.
+                (0.20f + heatProgress * 0.42f) *
+                    (1f + kotlin.math.sin(flamePhase.toDouble()).toFloat() * 0.025f)
             }
             val flameCenterX = cx - dp(42)
             val flameBaseY = cy - dp(5)
@@ -1482,12 +1401,18 @@ class MainActivity : Activity() {
                 close()
             }
             val outerFlamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = if (boilerOn) Color.rgb(255, 75, 18) else Color.rgb(25, 145, 255)
+                color = if (boilerOn) Color.rgb(255, 75, 18) else {
+                    val level = (65 + heatProgress * 150).toInt().coerceIn(65, 215)
+                    Color.rgb(12, (35 + heatProgress * 110).toInt(), level)
+                }
                 style = Paint.Style.FILL
                 setShadowLayer(dp(6).toFloat(), 0f, 0f, color)
             }
             val innerFlamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = if (boilerOn) Color.rgb(255, 190, 25) else Color.rgb(150, 225, 255)
+                color = if (boilerOn) Color.rgb(255, 190, 25) else {
+                    val level = (100 + heatProgress * 145).toInt().coerceIn(100, 245)
+                    Color.rgb(35, (70 + heatProgress * 130).toInt(), level)
+                }
                 style = Paint.Style.FILL
             }
             canvas.drawPath(flamePath, outerFlamePaint)
@@ -1513,15 +1438,7 @@ class MainActivity : Activity() {
  
             // El símbolo de encendido es un control independiente; el resto del dial
             // queda disponible para ajustar la temperatura mediante arrastre.
-            val activeColor = if (boilerOn) Color.rgb(0, 145, 255) else temperatureColor
-            val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = activeColor
-                style = Paint.Style.STROKE
-                strokeWidth = dp(5).toFloat()
-                setShadowLayer(dp(9).toFloat(), 0f, 0f, activeColor)
-            }
-            canvas.drawCircle(cx, cy, radius - dp(5), glowPaint)
-            powerSymbolPaint.color = if (boilerOn) Color.rgb(115, 205, 255) else Color.rgb(255, 125, 130)
+            powerSymbolPaint.color = if (boilerOn) Color.rgb(0, 145, 255) else Color.rgb(190, 195, 200)
             powerSymbolPaint.strokeWidth = dp(3.5f.toInt()).toFloat()
             val symbolRadius = dp(12).toFloat()
             val symbolX = cx
@@ -1602,7 +1519,7 @@ class MainActivity : Activity() {
             var relative = angle - 135f
             if (relative < 0f) relative += 360f
             relative = relative.coerceIn(0f, 270f)
-            val value = (10f + relative / 270f * 40f).toInt().coerceIn(10, 50)
+            val value = (10f + relative / 270f * 60f).toInt().coerceIn(10, 70)
             temperature = value
             invalidate()
             onTemperatureChanged(value)
