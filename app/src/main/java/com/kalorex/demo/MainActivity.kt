@@ -21,6 +21,9 @@ import kotlin.math.sin
 import java.util.Calendar
 import java.util.Locale
 import android.app.TimePickerDialog
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
 
@@ -130,6 +133,9 @@ class MainActivity : Activity() {
     )
 
     private lateinit var servoStatus: TextView
+    private var servoConnectionStatus: TextView? = null
+    private val servoExecutor = Executors.newSingleThreadExecutor()
+    private val servoBaseUrl = "http://192.168.1.188"
     private lateinit var timerText: TextView
     private lateinit var timerSwitch: Switch
     private lateinit var gauge: TemperatureGauge
@@ -423,7 +429,7 @@ class MainActivity : Activity() {
         val servoText = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(label("Control de servomotor", 16, white, true))
-            addView(label("Abrir o cerrar válvula", 13, Color.LTGRAY))
+            addView(label("Control del servomotor", 13, Color.LTGRAY))
         }
         servoRow.addView(servoText, LinearLayout.LayoutParams(0, -2, 1f))
         servoRow.addView(label("›", 28, white, true))
@@ -433,43 +439,121 @@ class MainActivity : Activity() {
 
     private fun buildServoPage(root: LinearLayout) {
         val servoPanel = panelBox()
-        servoPanel.addView(sectionTitle("CONTROL DE SERVOMOTOR (GAS)"))
+        servoPanel.addView(sectionTitle("CONTROL DE SERVOMOTOR · PROTOTIPO"))
+
         val heading = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        heading.addView(label("Apertura de válvula", 16, white, true),
+        heading.addView(label("Posición del servomotor", 16, white, true),
             LinearLayout.LayoutParams(0, -2, 1f))
         servoStatus = label("$servoOpen%", 18, green, true)
         heading.addView(servoStatus)
         servoPanel.addView(heading)
+
+        servoConnectionStatus = label("Conexión pendiente · Red local", 12, Color.LTGRAY)
+        servoPanel.addView(servoConnectionStatus)
+
         val seek = SeekBar(this).apply {
             max = 100
             progress = servoOpen
             progressTintList = android.content.res.ColorStateList.valueOf(green)
             thumbTintList = android.content.res.ColorStateList.valueOf(white)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    servoOpen = progress
-                    servoStatus.text = "$servoOpen%"
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-            })
         }
         servoPanel.addView(seek)
+
+        val angleText = label("Ángulo aproximado: ${servoOpen * 180 / 100}°", 13, Color.LTGRAY)
+        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                servoOpen = progress
+                servoStatus.text = "$servoOpen%"
+                angleText.text = "Ángulo aproximado: ${servoOpen * 180 / 100}°"
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                sendServoPosition(servoOpen)
+            }
+        })
+        servoPanel.addView(angleText)
+
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
         }
-        controls.addView(actionButton("CERRAR", panel).apply { setOnClickListener { seek.progress = 0 } },
-            LinearLayout.LayoutParams(dp(100), dp(42)))
+        controls.addView(actionButton("CERRAR · 0°", panel).apply {
+            setOnClickListener {
+                seek.progress = 0
+                sendServoPosition(0)
+            }
+        }, LinearLayout.LayoutParams(dp(125), dp(44)))
         controls.addView(space(dp(8)))
-        controls.addView(actionButton("ABRIR", blue).apply { setOnClickListener { seek.progress = 100 } },
-            LinearLayout.LayoutParams(dp(100), dp(42)))
+        controls.addView(actionButton("ABRIR · 180°", blue).apply {
+            setOnClickListener {
+                seek.progress = 100
+                sendServoPosition(100)
+            }
+        }, LinearLayout.LayoutParams(dp(135), dp(44)))
         servoPanel.addView(controls)
-        servoPanel.addView(label("Control de demostración: no acciona un servomotor físico sin conexión al hardware.", 12, Color.LTGRAY))
+
+        servoPanel.addView(label(
+            "Control de prueba por Wi-Fi local. El teléfono y el ESP8266 deben estar conectados a la misma red.",
+            12, Color.LTGRAY
+        ))
+        servoPanel.addView(label(
+            "Prototipo únicamente para un servomotor libre; no conectar a una válvula de gas.",
+            12, Color.rgb(255, 170, 90), true
+        ))
         root.addView(servoPanel)
+    }
+
+    private fun sendServoPosition(percent: Int) {
+        val safePercent = percent.coerceIn(0, 100)
+        val degrees = (safePercent * 180) / 100
+
+        servoConnectionStatus?.text = "Enviando posición…"
+        servoConnectionStatus?.setTextColor(Color.LTGRAY)
+
+        servoExecutor.execute {
+            var connection: HttpURLConnection? = null
+            try {
+                val url = URL("$servoBaseUrl/servo?angulo=$degrees")
+                connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                    useCaches = false
+                }
+                val responseCode = connection.responseCode
+                runOnUiThread {
+                    if (responseCode in 200..299) {
+                        servoConnectionStatus?.text =
+                            "Conectado · Orden enviada: $degrees° ($safePercent%)"
+                        servoConnectionStatus?.setTextColor(green)
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Posición enviada al servomotor",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        servoConnectionStatus?.text = "ESP8266 respondió con error: HTTP $responseCode"
+                        servoConnectionStatus?.setTextColor(Color.RED)
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    servoConnectionStatus?.text =
+                        "Sin conexión · Verifica que el celular esté en el Wi-Fi del ESP8266"
+                    servoConnectionStatus?.setTextColor(Color.RED)
+                    Toast.makeText(
+                        this@MainActivity,
+                        "No se pudo comunicar con el ESP8266",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            } finally {
+                connection?.disconnect()
+            }
+        }
     }
 
     private fun nextScheduleDescription(): String {
@@ -1185,6 +1269,7 @@ class MainActivity : Activity() {
         scheduleHandler.removeCallbacks(scheduleCheck)
         coolingHandler.removeCallbacks(coolingRunnable)
         heatingHandler.removeCallbacks(heatingRunnable)
+        servoExecutor.shutdownNow()
         super.onDestroy()
     }
 
