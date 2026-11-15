@@ -118,6 +118,7 @@ class MainActivity : Activity() {
     }
     private var servoOpen = 0
     private var lastServoCommandPercent: Int? = null
+    private var servoCommandInFlightPercent: Int? = null
     private val servoCommandHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var pendingServoPercent: Int? = null
     private var lastServoCommandAt = 0L
@@ -426,10 +427,17 @@ class MainActivity : Activity() {
     private fun syncServoWithTemperature(temperature: Int) {
         val safeTemperature = temperature.coerceIn(10, 70)
         // 10 °C = 0°, 40 °C = 90°, 70 °C = 180°.
+        // La orden también se envía durante el enfriamiento gradual con el control apagado.
         val percent = (((safeTemperature - 10) * 100f) / 60f).toInt().coerceIn(0, 100)
         servoOpen = percent
-        pendingServoPercent = percent
 
+        // No repetir una orden que ya fue confirmada por el ESP8266.
+        if (percent == lastServoCommandPercent ||
+            percent == servoCommandInFlightPercent ||
+            percent == pendingServoPercent
+        ) return
+
+        pendingServoPercent = percent
         val now = android.os.SystemClock.elapsedRealtime()
         val elapsed = now - lastServoCommandAt
         servoCommandHandler.removeCallbacks(servoCommandRunnable)
@@ -443,8 +451,8 @@ class MainActivity : Activity() {
 
     private fun sendServoPosition(percent: Int) {
         val safePercent = percent.coerceIn(0, 100)
-        lastServoCommandPercent = safePercent
         val degrees = (safePercent * 180) / 100
+        servoCommandInFlightPercent = safePercent
 
         servoConnectionStatus?.text = "Enviando posición…"
         servoConnectionStatus?.setTextColor(Color.LTGRAY)
@@ -461,7 +469,9 @@ class MainActivity : Activity() {
                 }
                 val responseCode = connection.responseCode
                 runOnUiThread {
+                    servoCommandInFlightPercent = null
                     if (responseCode in 200..299) {
+                        lastServoCommandPercent = safePercent
                         servoConnectionStatus?.text =
                             "Conectado · Orden enviada: $degrees° ($safePercent%)"
                         servoConnectionStatus?.setTextColor(green)
@@ -472,6 +482,7 @@ class MainActivity : Activity() {
                 }
             } catch (e: Exception) {
                 runOnUiThread {
+                    servoCommandInFlightPercent = null
                     servoConnectionStatus?.text =
                         "Sin conexión · Verifica que el celular esté en el Wi-Fi del ESP8266"
                     servoConnectionStatus?.setTextColor(Color.RED)
@@ -790,8 +801,8 @@ class MainActivity : Activity() {
 
     private fun updateTemperature() {
         actualTemp = setTemp.toFloat()
-        // También cubre los cambios graduales de temperatura ejecutados por la programación.
-        // El servomotor sigue cada cambio del dial durante calentamiento y enfriamiento.
+        // Sincroniza el servo tanto al calentar como al enfriar gradualmente.
+        // Al apagar, beginGradualCooling() reduce setTemp y el servo acompaña cada paso.
         syncServoWithTemperature(setTemp)
         if (::gauge.isInitialized) {
             gauge.setTemperature(setTemp)
