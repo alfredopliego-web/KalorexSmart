@@ -1,65 +1,20 @@
 
-name: Build Kalorex APK
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Descargar proyecto
-        uses: actions/checkout@v4
-
-      - name: Instalar Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Instalar Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Compilar APK
-        run: gradle assembleDebug
-
       - name: Preparar llave de firma
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          echo "$KEYSTORE_BASE64" \
-            | sed '/BEGIN CERTIFICATE/d;/END CERTIFICATE/d' \
-            | tr -d '\r\n ' \
+          printf '%s' "$KEYSTORE_BASE64" \
+            | tr -cd 'A-Za-z0-9+/=' \
             | base64 --decode > kalorex-release.jks
 
-      - name: Firmar APK
-        env:
-          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        run: |
-          set -euo pipefail
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
-          "$APKSIGNER" sign \
-            --ks kalorex-release.jks \
-            --ks-key-alias "$KEY_ALIAS" \
-            --ks-pass env:STORE_PASSWORD \
-            --key-pass env:KEY_PASSWORD \
-            --out app/build/outputs/apk/debug/KalorexSmart-firmada.apk \
-            "$APK"
-          "$APKSIGNER" verify app/build/outputs/apk/debug/KalorexSmart-firmada.apk
+          test -s kalorex-release.jks
 
-      - name: Guardar APK firmada
-        uses: actions/upload-artifact@v4
-        with:
-          name: KalorexSmart-Firmada
-          path: app/build/outputs/apk/debug/KalorexSmart-firmada.apk
-          if-no-files-found: error
+          keytool -list \
+            -keystore kalorex-release.jks \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -alias "$KEY_ALIAS"
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
