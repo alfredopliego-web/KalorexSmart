@@ -23,8 +23,46 @@ import android.app.TimePickerDialog
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
+import android.util.Log
+import java.io.PrintWriter
+import java.io.StringWriter
 
 class MainActivity : Activity() {
+
+    private var startupStage = "Activity creada"
+
+    private fun writeDiagnostic(message: String, error: Throwable? = null) {
+        try {
+            val file = java.io.File(filesDir, "kalorex-crash.txt")
+            val details = StringBuilder()
+                .append("\n--- ")
+                .append(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(java.util.Date()))
+                .append(" ---\n")
+                .append("Etapa: ").append(startupStage).append("\n")
+                .append(message).append("\n")
+            if (error != null) {
+                val sw = StringWriter()
+                error.printStackTrace(PrintWriter(sw))
+                details.append(sw.toString()).append("\n")
+                Log.e("KalorexCrash", message, error)
+            } else {
+                Log.i("KalorexCrash", details.toString())
+            }
+            file.appendText(details.toString(), Charsets.UTF_8)
+        } catch (_: Throwable) {
+            // El registro nunca debe provocar otro cierre.
+        }
+    }
+
+    private fun installCrashLogger() {
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            writeDiagnostic("EXCEPCIÓN NO CONTROLADA en hilo ${thread.name}", error)
+            previousHandler?.uncaughtException(thread, error)
+        }
+        writeDiagnostic("Registrador de errores instalado")
+    }
+
 
     private var themeMode = 0 // 0 = Industrial Pro, 1 = Calorex claro
     private var bg = Color.rgb(3, 12, 25)
@@ -118,7 +156,6 @@ class MainActivity : Activity() {
     }
     private var servoOpen = 0
     private var lastServoCommandPercent: Int? = null
-    private var servoCommandInFlightPercent: Int? = null
     private val servoCommandHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var pendingServoPercent: Int? = null
     private var lastServoCommandAt = 0L
@@ -155,10 +192,24 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        prefs = getSharedPreferences("kalorex_smart", MODE_PRIVATE)
-        loadPreferences()
-        applyThemeColors()
-        buildScreen()
+        installCrashLogger()
+        try {
+            startupStage = "Inicializando preferencias"
+            prefs = getSharedPreferences("kalorex_smart", MODE_PRIVATE)
+            loadPreferences()
+            writeDiagnostic("Preferencias cargadas")
+
+            startupStage = "Aplicando tema"
+            applyThemeColors()
+            writeDiagnostic("Tema aplicado")
+
+            startupStage = "Construyendo pantalla"
+            buildScreen()
+            writeDiagnostic("Pantalla construida correctamente")
+        } catch (error: Throwable) {
+            writeDiagnostic("ERROR durante onCreate", error)
+            throw error
+        }
     }
 
     private lateinit var pageContainer: FrameLayout
@@ -169,7 +220,13 @@ class MainActivity : Activity() {
     private val scheduleHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val scheduleCheck = object : Runnable {
         override fun run() {
-            applyScheduleForCurrentTime()
+            try {
+                startupStage = "Comprobación periódica de programación"
+                applyScheduleForCurrentTime()
+            } catch (error: Throwable) {
+                writeDiagnostic("ERROR en comprobación periódica", error)
+                throw error
+            }
             if (::gauge.isInitialized) gauge.invalidate()
             if (::pageContainer.isInitialized) {
                 val clock = pageContainer.findViewWithTag<TextView>("kalorex_main_clock")
@@ -427,17 +484,10 @@ class MainActivity : Activity() {
     private fun syncServoWithTemperature(temperature: Int) {
         val safeTemperature = temperature.coerceIn(10, 70)
         // 10 °C = 0°, 40 °C = 90°, 70 °C = 180°.
-        // La orden también se envía durante el enfriamiento gradual con el control apagado.
         val percent = (((safeTemperature - 10) * 100f) / 60f).toInt().coerceIn(0, 100)
         servoOpen = percent
-
-        // No repetir una orden que ya fue confirmada por el ESP8266.
-        if (percent == lastServoCommandPercent ||
-            percent == servoCommandInFlightPercent ||
-            percent == pendingServoPercent
-        ) return
-
         pendingServoPercent = percent
+
         val now = android.os.SystemClock.elapsedRealtime()
         val elapsed = now - lastServoCommandAt
         servoCommandHandler.removeCallbacks(servoCommandRunnable)
@@ -451,8 +501,8 @@ class MainActivity : Activity() {
 
     private fun sendServoPosition(percent: Int) {
         val safePercent = percent.coerceIn(0, 100)
+        lastServoCommandPercent = safePercent
         val degrees = (safePercent * 180) / 100
-        servoCommandInFlightPercent = safePercent
 
         servoConnectionStatus?.text = "Enviando posición…"
         servoConnectionStatus?.setTextColor(Color.LTGRAY)
@@ -469,9 +519,7 @@ class MainActivity : Activity() {
                 }
                 val responseCode = connection.responseCode
                 runOnUiThread {
-                    servoCommandInFlightPercent = null
                     if (responseCode in 200..299) {
-                        lastServoCommandPercent = safePercent
                         servoConnectionStatus?.text =
                             "Conectado · Orden enviada: $degrees° ($safePercent%)"
                         servoConnectionStatus?.setTextColor(green)
@@ -482,7 +530,6 @@ class MainActivity : Activity() {
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    servoCommandInFlightPercent = null
                     servoConnectionStatus?.text =
                         "Sin conexión · Verifica que el celular esté en el Wi-Fi del ESP8266"
                     servoConnectionStatus?.setTextColor(Color.RED)
@@ -801,8 +848,8 @@ class MainActivity : Activity() {
 
     private fun updateTemperature() {
         actualTemp = setTemp.toFloat()
-        // Sincroniza el servo tanto al calentar como al enfriar gradualmente.
-        // Al apagar, beginGradualCooling() reduce setTemp y el servo acompaña cada paso.
+        // También cubre los cambios graduales de temperatura ejecutados por la programación.
+        // El servomotor sigue cada cambio del dial durante calentamiento y enfriamiento.
         syncServoWithTemperature(setTemp)
         if (::gauge.isInitialized) {
             gauge.setTemperature(setTemp)
